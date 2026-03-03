@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Archives
+*.zip
+*.tar.gz
+旧版本zip/
+
+# Large design files & unnecessary images
+total.png
+top.png
+chrome插件图标.pxd
+example.png
+small.png

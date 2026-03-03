@@ -1,0 +1,73 @@
+/*
+  The !important is used to ensure our style overrides
+  any of the website's existing styles.
+  Instead of display: none which destroys the DOM layout rects (causing (0,0) menus),
+  we hide it visually while keeping it in the render tree so Angular CDK can measure it.
+*/
+.source-panel .scroll-area-desktop,
+.source-panel .sources-list-container,
+.source-panel [data-testid="scroll-area"],
+[data-testid="source-panel"] .scroll-area-desktop,
+[data-testid="source-panel"] .sources-list-container,
+[data-testid="source-panel"] [data-testid="scroll-area"] {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  z-index: -1 !important;
+}
+
+/* Some basic styling for our own UI */
+.sp-container {
+  padding: 0 16px 16px 16px;
+  border-bottom: 1px solid #ccc;
+}
+
+/* ==================================================== */
+/* NATIVE MENU UI OPTIMIZATION                          */
+/* ==================================================== */
+
+/* Add soft shadows, rounded corners, and animations to the Google native secondary menu */
+.cdk-overlay-pane .mat-mdc-menu-panel,
+.cdk-overlay-pane [role="menu"] {
+  border-radius: 12px !important;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  border: 1px solid rgba(128, 128, 128, 0.15) !important;
+  animation: sp-menu-pop 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards !important;
+  overflow: hidden !important;
+  /* To keep rounded corners for background */
+  transform-origin: top left;
+}
+
+@keyframes sp-menu-pop {
+  0% {
+    transform: scale(0.95) translateY(-6px);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Round the individual native menu items */
+.cdk-overlay-pane .mat-mdc-menu-content .mat-mdc-menu-item {
+  border-radius: 12px !important;
+  margin: 2px 6px !important;
+  width: calc(100% - 12px) !important;
+  transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+}
+
+/* Dark mode adjustments for native menu */
+@media (prefers-color-scheme: dark) {
+
+  .cdk-overlay-pane .mat-mdc-menu-panel,
+  .cdk-overlay-pane [role="menu"] {
+    background-color: rgba(30, 30, 32, 0.98) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+  }
+}

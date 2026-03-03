@@ -1,0 +1,78 @@
+{
+    "extName": {
+        "message": "NotebookLM Sources Management"
+    },
+    "extShortName": {
+        "message": "NLM Sources+"
+    },
+    "extDesc": {
+        "message": "Folder and drag-and-drop sorting for the NotebookLM sources panel."
+    },
+    "ui_filter_sources": {
+        "message": "Filter sources"
+    },
+    "ui_new_group": {
+        "message": "New Group"
+    },
+    "ui_new_subgroup": {
+        "message": "New Subgroup"
+    },
+    "ui_add_subgroup": {
+        "message": "Add Subgroup"
+    },
+    "ui_rename": {
+        "message": "Rename"
+    },
+    "ui_delete_group": {
+        "message": "Delete Group"
+    },
+    "ui_expand": {
+        "message": "Expand"
+    },
+    "ui_collapse": {
+        "message": "Collapse"
+    },
+    "ui_enable_group": {
+        "message": "Enable Group"
+    },
+    "ui_disable_group": {
+        "message": "Disable Group"
+    },
+    "ui_isolate_group": {
+        "message": "Isolate this group"
+    },
+    "ui_ungrouped": {
+        "message": "Ungrouped"
+    },
+    "ui_batch_delete": {
+        "message": "Batch Delete"
+    },
+    "ui_cancel": {
+        "message": "Cancel"
+    },
+    "ui_delete_count": {
+        "message": "Delete ($1)",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_deleting": {
+        "message": "Deleting..."
+    },
+    "ui_source_import_failed": {
+        "message": "Source import failed"
+    },
+    "ui_source_parsing": {
+        "message": "Parsing source..."
+    },
+    "ui_deleted_toast": {
+        "message": "Deleted $1 source(s)",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    }
+}

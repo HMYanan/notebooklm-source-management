@@ -1,0 +1,78 @@
+{
+    "extName": {
+        "message": "NotebookLM 来源管理器"
+    },
+    "extShortName": {
+        "message": "NLM 来源+"
+    },
+    "extDesc": {
+        "message": "为 NotebookLM 来源面板添加文件夹分类与拖拽排序功能。"
+    },
+    "ui_filter_sources": {
+        "message": "过滤来源"
+    },
+    "ui_new_group": {
+        "message": "新建分组"
+    },
+    "ui_new_subgroup": {
+        "message": "新建子分组"
+    },
+    "ui_add_subgroup": {
+        "message": "添加子分组"
+    },
+    "ui_rename": {
+        "message": "重命名"
+    },
+    "ui_delete_group": {
+        "message": "删除分组"
+    },
+    "ui_expand": {
+        "message": "展开"
+    },
+    "ui_collapse": {
+        "message": "折叠"
+    },
+    "ui_enable_group": {
+        "message": "启用分组"
+    },
+    "ui_disable_group": {
+        "message": "禁用分组"
+    },
+    "ui_isolate_group": {
+        "message": "仅看此分组"
+    },
+    "ui_ungrouped": {
+        "message": "未分组"
+    },
+    "ui_batch_delete": {
+        "message": "批量删除"
+    },
+    "ui_cancel": {
+        "message": "取消"
+    },
+    "ui_delete_count": {
+        "message": "删除 ($1)",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_deleting": {
+        "message": "删除中..."
+    },
+    "ui_source_import_failed": {
+        "message": "来源导入失败"
+    },
+    "ui_source_parsing": {
+        "message": "正在解析来源..."
+    },
+    "ui_deleted_toast": {
+        "message": "已删除 $1 个来源",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    }
+}
