@@ -1,4 +1,4 @@
-# NotebookLM Sources+ - GitHub 开源发布计划
+# NotebookLM Source Management - GitHub 开源发布计划
 
 ## 1. 需求回响 (Requirement Echo)
 根据你的需求：“我想把我的这个插件程序在github上面开源，我该怎样操作？”

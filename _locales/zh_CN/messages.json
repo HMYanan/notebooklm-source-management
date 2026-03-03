@@ -3,7 +3,7 @@
         "message": "NotebookLM 来源管理器"
     },
     "extShortName": {
-        "message": "NLM 来源+"
+        "message": "NLM 来源管理"
     },
     "extDesc": {
         "message": "为 NotebookLM 来源面板添加文件夹分类与拖拽排序功能。"

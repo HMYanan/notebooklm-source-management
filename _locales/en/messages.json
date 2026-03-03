@@ -1,9 +1,9 @@
 {
     "extName": {
-        "message": "NotebookLM Sources Management"
+        "message": "NotebookLM Source Management"
     },
     "extShortName": {
-        "message": "NLM Sources+"
+        "message": "NLM Source Management"
     },
     "extDesc": {
         "message": "Folder and drag-and-drop sorting for the NotebookLM sources panel."
