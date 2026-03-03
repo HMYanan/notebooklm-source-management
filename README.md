@@ -3,9 +3,9 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-2.2.0-green.svg)
 
-> **NotebookLM Source Management** is a powerful Chrome extension that supercharges your Google NotebookLM experience with advanced source management, batch operations, and a beautiful Apple HIG-inspired Glassmorphism UI.
+> **NotebookLM Source Management** is a powerful Chrome extension that supercharges your Google NotebookLM experience with advanced source management, batch operations and so on.
 > 
-> **NotebookLM Source Management** 是一款强大的 Chrome 浏览器扩展，为 Google NotebookLM 带来高阶的来源管理功能、批量删除操作，以及极致优雅的 Apple HIG 风格毛玻璃界面。
+> **NotebookLM Source Management** 是一款强大的 Chrome 浏览器扩展，为 Google NotebookLM 带来来源管理功能、批量删除操作等等。
 
 ---
 
