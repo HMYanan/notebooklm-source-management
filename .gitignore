@@ -15,3 +15,6 @@ small.png
 CHANGELOG.md
 always_update_changelog.md
 
+# AI Agent folders
+.agents/
+.agent/
