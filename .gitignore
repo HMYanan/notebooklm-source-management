@@ -13,11 +13,5 @@ chrome插件图标.pxd
 example.png
 small.png
 CHANGELOG.md
-PLAN.md
 always_update_changelog.md
 
-# Agent and Tutorial files
-.agents/
-GITHUB_PUBLISH_TUTORIAL.md
-GIT_COMMANDS_GUIDE.md
-TERMINAL_COMMANDS_GUIDE.md
