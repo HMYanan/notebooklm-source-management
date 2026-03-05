@@ -177,9 +177,6 @@
                 if (deleteMenuItem) {
                     deleteMenuItem.click();
 
-                    // Step 3: Wait for the confirmation dialog and click true
-                    await new Promise(resolve => setTimeout(resolve, 150)); // Wait for dialog to animate in
-
                     const dialogs = document.querySelectorAll('mat-dialog-container, [role="dialog"], .cdk-dialog-container');
                     let confirmBtn = null;
                     for (const dialog of dialogs) {
@@ -188,16 +185,26 @@
                         for (const btn of buttons) {
                             const btnText = btn.textContent.toLowerCase();
                             const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-                            if (btnText.includes('delete') || btnText.includes('删除') ||
+                            // Stronger heuristic: Primary colored buttons or specific material structure
+                            const isPrimaryButton = btn.className.includes('primary') || btn.className.includes('warn');
+                            const hasCheckIcon = btn.querySelector('mat-icon')?.textContent.trim() === 'check';
+                            if (
+                                isPrimaryButton || hasCheckIcon ||
+                                btnText.includes('delete') || btnText.includes('删除') ||
                                 btnText.includes('remove') || ariaLabel.includes('delete') ||
                                 btnText.includes('yes') || btnText.includes('确定') ||
-                                btnText.includes('确认') || btnText.includes('confirm')) {
-                                // Usually in Material dialogs, there's a cancel and confirm. Confirm usually has a primary color or distinct text.
-                                // The closest match is typically the one with 'delete' or 'remove' or 'confirm' in it.
+                                btnText.includes('确认') || btnText.includes('confirm')
+                            ) {
                                 confirmBtn = btn;
                                 break;
                             }
                         }
+                        // Fallback: If no explicit match, usually the last button or the one with "primary/warn" class is confirm
+                        if (!confirmBtn && buttons.length > 0) {
+                            const warnBtn = Array.from(buttons).find(b => b.className.includes('warn') || b.className.includes('primary'));
+                            confirmBtn = warnBtn || buttons[buttons.length - 1];
+                        }
+
                         if (confirmBtn) break;
                     }
 
@@ -303,6 +310,133 @@
         }
     }
 
+    // ==========================================
+    // UI RENDERING - MODALS
+    // ==========================================
+
+    function renderMoveToFolderModal(sourceKey) {
+        if (!shadowRoot) return;
+
+        // Cleanup existing modal if any
+        closeMoveToFolderModal();
+
+        const source = sourcesByKey.get(sourceKey);
+        if (!source) return;
+
+        const backdrop = el('div', { className: 'sp-overlay-backdrop', id: 'sp-move-backdrop' });
+        const modal = el('div', { className: 'sp-folder-modal', id: 'sp-move-modal' });
+
+        const header = el('div', { className: 'sp-folder-modal-header' }, [
+            el('h3', { className: 'sp-folder-modal-title' }, [chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder"])
+        ]);
+
+        const content = el('div', { className: 'sp-folder-modal-content' });
+
+        let folderFound = false;
+        // Collect all groups from root
+        state.groups.forEach(groupId => { // Iterate through top-level group IDs
+            const group = groupsById.get(groupId);
+            if (group) { // Ensure group exists
+                folderFound = true;
+                const folderBtn = el('button', { className: 'sp-folder-option' }, [
+                    el('span', { className: 'google-symbols' }, ['folder']),
+                    el('span', { className: 'sp-folder-option-title' }, [group.title || "Group"])
+                ]);
+
+                folderBtn.addEventListener('click', () => {
+                    executeMoveToFolder(sourceKey, group.id);
+                });
+                content.appendChild(folderBtn);
+            }
+        });
+
+
+        if (!folderFound) {
+            const emptyText = chrome.i18n.getMessage("ui_empty_folders") || "No folders available yet.\nCreate one first.";
+            content.appendChild(el('div', { className: 'sp-folder-empty' }, [emptyText]));
+        }
+
+        const footer = el('div', { className: 'sp-folder-modal-footer' }, [
+            el('button', { className: 'sp-modal-cancel' }, [chrome.i18n.getMessage("ui_cancel") || "Cancel"])
+        ]);
+
+        footer.querySelector('.sp-modal-cancel').addEventListener('click', closeMoveToFolderModal);
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) closeMoveToFolderModal();
+        });
+
+        modal.appendChild(header);
+        modal.appendChild(content);
+        modal.appendChild(footer);
+
+        shadowRoot.appendChild(backdrop);
+        shadowRoot.appendChild(modal);
+
+        // Animate in
+        // Small delay to ensure DOM is updated before adding visible class for transition
+        requestAnimationFrame(() => {
+            backdrop.classList.add('visible');
+            modal.classList.add('visible');
+        });
+    }
+
+    function closeMoveToFolderModal() {
+        if (!shadowRoot) return;
+        const backdrop = shadowRoot.getElementById('sp-move-backdrop');
+        const modal = shadowRoot.getElementById('sp-move-modal');
+
+        if (modal && backdrop) {
+            modal.classList.remove('visible');
+            modal.classList.add('closing');
+            backdrop.classList.remove('visible');
+
+            // Wait for animation to finish before removing from DOM
+            setTimeout(() => {
+                if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+                if (modal.parentNode) modal.parentNode.removeChild(modal);
+            }, 300); // match transition length
+        } else {
+            // Fallback cleanup
+            if (backdrop) backdrop.remove();
+            if (modal) modal.remove();
+        }
+    }
+
+    function executeMoveToFolder(sourceKey, targetGroupId) {
+        // Find source in ungrouped
+        const sourceIndex = state.ungrouped.indexOf(sourceKey);
+        if (sourceIndex === -1) {
+            closeMoveToFolderModal();
+            return;
+        }
+
+        const sourceData = sourcesByKey.get(sourceKey); // Get full source object
+        const targetGroup = groupsById.get(targetGroupId);
+
+        if (targetGroup && sourceData) {
+            // Remove from ungrouped
+            state.ungrouped.splice(sourceIndex, 1);
+
+            // Add to target group
+            targetGroup.children.push({
+                type: 'source',
+                key: sourceKey,
+                // No need to store title, iconName, enabled in group children,
+                // as they are already in sourcesByKey.
+                // The child object only needs type and key/id.
+            });
+
+            buildParentMap();
+            saveState();
+            render();
+        }
+        closeMoveToFolderModal();
+    }
+
+    // ==========================================
+    // DATA AND UTILS
+    // ==========================================
+
     // --- Core Render & Logic ---
     function getGroupEffectiveState(group) {
         const descendantKeys = [];
@@ -374,6 +508,10 @@
                         el('span', { className: 'google-symbols' }, [isFailed ? 'error' : source.iconName])
                 ]),
                 el('div', { className: 'menu-container' }, [
+                    // Only show standard options buttons when not in delete mode AND not loading
+                    !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-move-to-folder-button', dataset: { sourceKey: source.key }, title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder" }, [
+                        el('span', { className: 'google-symbols' }, ['drive_file_move'])
+                    ]) : '',
                     !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-more-button', dataset: { sourceKey: source.key } }, [
                         el('span', { className: 'google-symbols' }, ['more_vert'])
                     ]) : ''
@@ -721,7 +859,7 @@
             }
         }
         // Handle clicking on the source item row to toggle checkbox (unless clicking button/checkbox)
-        else if (target.closest('.source-item') && !target.closest('.sp-more-button, input, .sp-delete-checkbox')) {
+        else if (target.closest('.source-item') && !target.closest('.sp-more-button, .sp-move-to-folder-button, input, .sp-delete-checkbox')) {
             const sourceRow = target.closest('.source-item');
             const sourceKey = sourceRow.dataset.sourceKey;
             const source = sourcesByKey.get(sourceKey);
@@ -846,6 +984,13 @@
             buildParentMap();
             saveState();
             render();
+        }
+
+        // --- Move To Folder Modal Trigger ---
+        const moveButton = target.closest('.sp-move-to-folder-button');
+        if (moveButton) {
+            const key = moveButton.dataset.sourceKey;
+            renderMoveToFolderModal(key);
         }
     }
 
@@ -1080,7 +1225,7 @@
             scrollObserver = null;
         }
         if (healthCheckInterval) {
-            clearInterval(healthCheckInterval);
+            clearTimeout(healthCheckInterval); // Now using setTimeout for adaptive backoff
             healthCheckInterval = null;
         }
         document.removeEventListener('change', handleOriginalCheckboxChange, true);
@@ -1197,7 +1342,7 @@
 
             .sp-container { display: flex; flex-direction: column; max-height: calc(100vh - 220px); min-height: 150px; font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; color: var(--sp-text-primary); position: relative; }
             .sp-resizer { height: 8px; width: 100%; cursor: ns-resize; position: absolute; bottom: -4px; left: 0; z-index: 10; display: flex; justify-content: center; align-items: center; }
-            .sp-resizer::after { content: ''; width: 30px; height: 3px; background-color: var(--sp-border-medium); border-radius: 3px; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+            .sp-resizer::after { content: ''; width: 30px; height: 3px; background-color: var(--sp-border-medium); border-radius: 3px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
             .sp-resizer:hover::after { background-color: var(--sp-accent); }
             
             /* Sticky Header with Glassmorphism */
@@ -1226,19 +1371,19 @@
             #sources-list::-webkit-scrollbar-track { background: transparent; }
             #sources-list::-webkit-scrollbar-thumb { background-color: var(--sp-border-medium); border-radius: 12px; }
             .sp-search-container { display: flex; align-items: center; flex-grow: 1; position: relative; }
-            #sp-search { width: 100%; box-sizing: border-box; padding: 6px 32px 6px 12px; border: 1px solid var(--sp-border-light); border-radius: 12px; font-size: 13px; background-color: var(--sp-bg-secondary); color: var(--sp-text-primary); transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); transform-origin: center; }
+            #sp-search { width: 100%; box-sizing: border-box; padding: 6px 32px 6px 12px; border: 1px solid var(--sp-border-light); border-radius: 12px; font-size: 13px; background-color: var(--sp-bg-secondary); color: var(--sp-text-primary); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); transform-origin: center; }
             #sp-search:focus { background-color: var(--sp-bg-button); border-color: var(--sp-accent); box-shadow: 0 0 0 3px rgba(0,122,255,0.15); transform: scale(1.01); }
             #sp-search::placeholder { color: var(--sp-text-secondary); }
             
-            .sp-icon-button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 4px; display: flex; align-items: center; justify-content: center; color: var(--sp-text-secondary); cursor: pointer; border-radius: 4px; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+            .sp-icon-button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 4px; display: flex; align-items: center; justify-content: center; color: var(--sp-text-secondary); cursor: pointer; border-radius: 4px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
             .sp-icon-button:hover { background-color: var(--sp-icon-button-hover); color: var(--sp-text-primary); transform: translateY(-50%) scale(1.08); }
             .sp-icon-button:active { transform: translateY(-50%) scale(0.85); }
             .sp-icon-button .google-symbols { font-size: 18px; }
             
-            .sp-button { position: relative; overflow: hidden; border: 1px solid var(--sp-border-light); color: var(--sp-text-primary); background-color: var(--sp-bg-button); font-size: 13px; font-weight: 500; border-radius: 12px; padding: 6px 12px; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); white-space: nowrap; box-shadow: var(--sp-shadow-button); }
+            .sp-button { position: relative; overflow: hidden; border: 1px solid var(--sp-border-light); color: var(--sp-text-primary); background-color: var(--sp-bg-button); font-size: 13px; font-weight: 500; border-radius: 12px; padding: 6px 12px; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); white-space: nowrap; box-shadow: var(--sp-shadow-button); }
             .sp-button:hover { background-color: var(--sp-bg-button-hover); border-color: var(--sp-border-medium); }
             .sp-button:active { background-color: var(--sp-bg-button-active); transform: scale(0.95); }
-            .sp-button::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(128,128,128,0.15), transparent); transform: skewX(-20deg); transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+            .sp-button::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(128,128,128,0.15), transparent); transform: skewX(-20deg); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
             .sp-button:hover::after { left: 150%; }
             
             /* --- Ultra Premium Custom Animated Checkboxes --- */
@@ -1253,7 +1398,7 @@
                 position: relative; 
                 flex-shrink: 0; 
                 background-color: var(--sp-bg-primary); 
-                transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
             .sp-checkbox:hover {
                 border-color: var(--sp-accent);
@@ -1266,7 +1411,7 @@
             }
             /* Explicit user-interaction animation */
             .sp-checkbox.is-animating:checked {
-                animation: checkbox-spring 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+                animation: checkbox-spring 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
             
             /* The hidden checkmark shape inside the box */
@@ -1299,7 +1444,7 @@
             /* Animate the checkmark drawing in using an organic, non-linear sequence ONLY on user interaction */
             .sp-checkbox.is-animating:checked::before { 
                 /* ease-out decelerates at the very end of the stroke */
-                animation: check-draw-organic 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards !important;
+                animation: check-draw-organic 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards !important;
                 animation-delay: 0.1s !important; /* Let the checkbox pop start and settle a bit first */
             }
 
@@ -1316,28 +1461,29 @@
                 60% { transform: scale(1.15); } /* Overshoot */
                 100% { transform: scale(1); }
             }
-            .source-item, .group-header { display: flex; align-items: center; padding: 6px 8px; border-radius: 12px; margin: 2px 0; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); color: var(--sp-text-primary); position: relative; z-index: 1; transform-origin: left center; cursor: pointer; }
+            .source-item, .group-header { display: flex; align-items: center; padding: 6px 8px; border-radius: 12px; margin: 2px 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); color: var(--sp-text-primary); position: relative; z-index: 1; transform-origin: left center; cursor: pointer; }
             .source-item { padding-left: 12px; border: 1px solid transparent; }
             .group-header { font-weight: 600; background-color: var(--sp-bg-primary); }
             .source-item:hover, .group-header:hover { background-color: var(--sp-bg-hover); z-index: 2; transform: translateX(3px); }
             .source-item:active, .group-header:active { transform: translateX(3px) scale(0.98); }
-            .sp-caret { background: none; border: none; cursor: pointer; padding: 0 2px; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); transform: rotate(0deg); color: var(--sp-text-secondary); display: flex; align-items: center; justify-content: center; }
+            .sp-caret { background: none; border: none; cursor: pointer; padding: 0 2px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); transform: rotate(0deg); color: var(--sp-text-secondary); display: flex; align-items: center; justify-content: center; }
             .sp-caret .google-symbols { font-size: 20px; }
             .sp-caret.collapsed { transform: rotate(-90deg); }
             .icon-container { flex-shrink: 0; margin-right: 8px; display: flex; align-items: center; color: var(--sp-text-secondary); }
             .icon-container .google-symbols { font-size: 16px; }
-            .menu-container { flex-shrink: 0; margin-right: 8px; opacity: 0; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+            .menu-container { flex-shrink: 0; margin-right: 8px; opacity: 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); display: flex; align-items: center; }
             .source-item:hover .menu-container { opacity: 1; }
             .title-container, .group-title { flex-grow: 1; min-width: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-size: 13px; color: var(--sp-text-primary); letter-spacing: -0.01em; }
             .checkbox-container { flex-shrink: 0; margin-left: auto; padding-left: 8px; display: flex; align-items: center; }
-            .sp-more-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { background: none; border: none; cursor: pointer; border-radius: 12px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--sp-text-secondary); flex-shrink: 0; transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
-            .sp-more-button .google-symbols, .sp-add-subgroup-button .google-symbols, .sp-isolate-button .google-symbols, .sp-edit-button .google-symbols, .sp-delete-button .google-symbols { font-size: 16px; }
+            .sp-more-button, .sp-move-to-folder-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { background: none; border: none; cursor: pointer; border-radius: 12px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--sp-text-secondary); flex-shrink: 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
+            .sp-more-button .google-symbols, .sp-move-to-folder-button .google-symbols, .sp-add-subgroup-button .google-symbols, .sp-isolate-button .google-symbols, .sp-edit-button .google-symbols, .sp-delete-button .google-symbols { font-size: 16px; }
             .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { display: none; margin-left: 2px; }
+            .sp-more-button, .sp-move-to-folder-button { margin-left: 2px; }
             .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button { display: flex; }
             .group-title + .badge { margin-left: auto; }
-            .sp-more-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover { background-color: var(--sp-icon-button-hover); color: var(--sp-text-primary); transform: scale(1.1); }
+            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover { background-color: var(--sp-icon-button-hover); color: var(--sp-text-primary); transform: scale(1.1); }
             .sp-delete-button:hover { background-color: rgba(255, 59, 48, 0.1); color: var(--sp-accent-danger); transform: scale(1.1); }
-            .sp-more-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active { transform: scale(0.85); }
+            .sp-more-button:active, .sp-move-to-folder-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active { transform: scale(0.85); }
             .icon-color { color: var(--sp-accent); } .youtube-icon-color { color: var(--sp-accent-danger); } .pdf-icon-color { color: var(--sp-accent-danger); }
             .group-container { display: flex; flex-direction: column; overflow: hidden; margin-bottom: 2px; }
             .source-item.gated, .group-container.gated > .group-children { opacity: 0.5; filter: grayscale(50%); }
@@ -1349,7 +1495,7 @@
             .loading-source { cursor: wait; }
             .loading-source .title-container { 
                 opacity: 0.6; 
-                animation: pulse-text 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; 
+                animation: pulse-text 2s cubic-bezier(0.25, 1, 0.5, 1) infinite; 
             }
             .loading-source .sp-checkbox { opacity: 0; pointer-events: none; }
             .sp-spinner {
@@ -1371,7 +1517,7 @@
                 margin-left: 18px; 
                 margin-top: 2px; 
                 overflow: hidden; 
-                transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
                 opacity: 1;
                 /* By default, let height be auto. JS will set explicit heights during animation. */
             }
@@ -1384,7 +1530,7 @@
             
             /* Folder Entry Animation */
             .sp-folder-enter {
-                animation: sp-folder-pop 0.4s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+                animation: sp-folder-pop 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards;
                 transform-origin: top center;
             }
             @keyframes sp-folder-pop {
@@ -1392,18 +1538,55 @@
                 100% { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
             }
             
+            /* --- Move to Folder Modal & Overlay --- */
+            @keyframes sp-modal-enter {
+                0% { opacity: 0; transform: translate(-50%, -46%) scale(0.95); }
+                100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            }
+            @keyframes sp-modal-leave {
+                0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                100% { opacity: 0; transform: translate(-50%, -54%) scale(0.95); }
+            }
+            .sp-overlay-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.2); z-index: 10000; opacity: 0; transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1); pointer-events: none; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+            .sp-overlay-backdrop.visible { opacity: 1; pointer-events: auto; }
+            .sp-folder-modal { position: fixed; top: 50%; left: 50%; width: 320px; max-height: 80vh; transform: translate(-50%, -50%); background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(0, 0, 0, 0.05); border-radius: 16px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12); z-index: 10001; display: flex; flex-direction: column; overflow: hidden; opacity: 0; pointer-events: none; }
+            
+            /* Adjust for dark mode specifically */
+            @media (prefers-color-scheme: dark) {
+                .sp-folder-modal { background: rgba(30, 30, 32, 0.85); border-color: rgba(255,255,255,0.1); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4); }
+                .sp-overlay-backdrop { background: rgba(0, 0, 0, 0.6); }
+                .sp-folder-modal-header, .sp-folder-modal-footer { border-color: rgba(255,255,255,0.05); }
+            }
+            
+            .sp-folder-modal.visible { opacity: 1; pointer-events: auto; animation: sp-modal-enter 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards; }
+            .sp-folder-modal.closing { animation: sp-modal-leave 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards; }
+            .sp-folder-modal-header { padding: 16px 20px; border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
+            .sp-folder-modal-title { font-size: 16px; font-weight: 500; color: var(--sp-text-primary); margin: 0; }
+            .sp-folder-modal-content { padding: 8px; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 4px; }
+            
+            /* Vertical option list style */
+            .sp-folder-option { display: flex; align-items: center; padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); background: transparent; border: none; width: 100%; text-align: left; }
+            .sp-folder-option:hover { background: var(--sp-bg-hover); transform: scale(0.98); }
+            .sp-folder-option .google-symbols { font-size: 20px; color: var(--sp-accent); margin-right: 12px; opacity: 0.8; }
+            .sp-folder-option-title { font-size: 14px; color: var(--sp-text-primary); flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: normal; }
+            
+            .sp-folder-empty { padding: 24px 16px; text-align: center; color: var(--sp-text-tertiary); font-size: 14px; }
+            .sp-folder-modal-footer { padding: 12px 16px; display: flex; justify-content: flex-end; border-top: 1px solid rgba(0, 0, 0, 0.05); gap: 8px; }
+            .sp-modal-cancel { background: var(--sp-bg-secondary); color: var(--sp-text-primary); border: 1px solid var(--sp-border-light); padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
+            .sp-modal-cancel:hover { background: var(--sp-bg-hover); transform: scale(0.98); }
+
             .ungrouped-header { margin: 16px 0 6px 8px; color: var(--sp-text-secondary); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
             .source-item.dragging, .group-header.dragging { opacity: 0.95; background-color: var(--sp-bg-button); transform: scale(1.03) translateY(-2px); box-shadow: var(--sp-shadow-toast); border: 1px solid var(--sp-accent); z-index: 10; cursor: grabbing; transition: none; }
             .group-container.drag-into > .group-header { background-color: var(--sp-drag-into-bg); border-radius: 12px; }
             .drag-over-top { border-top: 2px solid var(--sp-accent); border-top-left-radius: 0; border-top-right-radius: 0; }
             .drag-over-bottom { border-bottom: 2px solid var(--sp-accent); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-            .sp-toast { visibility: hidden; min-width: 200px; background-color: var(--sp-bg-toast); color: var(--sp-text-toast); text-align: center; border-radius: 12px; padding: 12px 16px; position: fixed; z-index: 9999; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(20px) scale(0.9); font-size: 14px; font-weight: 500; opacity: 0; filter: blur(4px); transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); backdrop-filter: blur(10px); box-shadow: var(--sp-shadow-toast); }
+            .sp-toast { visibility: hidden; min-width: 200px; background-color: var(--sp-bg-toast); color: var(--sp-text-toast); text-align: center; border-radius: 12px; padding: 12px 16px; position: fixed; z-index: 9999; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(20px) scale(0.9); font-size: 14px; font-weight: 500; opacity: 0; filter: blur(4px); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); backdrop-filter: blur(10px); box-shadow: var(--sp-shadow-toast); }
             .sp-toast.show { visibility: visible; opacity: 1; transform: translateX(-50%) translateY(0) scale(1); filter: blur(0); }
             .badge { font-size: 11px; color: var(--sp-text-badge); margin-left: 6px; font-weight: 500; font-variant-numeric: tabular-nums; flex-shrink: 0; background: var(--sp-bg-badge); padding: 2px 6px; border-radius: 12px; }
             .sp-toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; margin: 0 8px 0 2px; flex-shrink: 0; }
             .sp-toggle-switch .sp-group-toggle-checkbox { opacity: 0; width: 0; height: 0; }
-            .sp-toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--sp-bg-switch); transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); border-radius: 18px; box-shadow: inset 0 0 0 1px var(--sp-border-light); }
-            .sp-toggle-slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px; background-color: var(--sp-bg-switch-thumb); transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); border-radius: 50%; box-shadow: var(--sp-shadow-switch-thumb); }
+            .sp-toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--sp-bg-switch); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); border-radius: 18px; box-shadow: inset 0 0 0 1px var(--sp-border-light); }
+            .sp-toggle-slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px; background-color: var(--sp-bg-switch-thumb); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); border-radius: 50%; box-shadow: var(--sp-shadow-switch-thumb); }
             .sp-group-toggle-checkbox:checked + .sp-toggle-slider { background-color: var(--sp-accent-success); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
             .sp-group-toggle-checkbox:checked + .sp-toggle-slider:before { transform: translateX(14px); }
             
@@ -1584,15 +1767,23 @@
             // 1. DOM Observation Escalation: Observe the entire sourcePanel instead of just scrollArea
             scrollObserver = new MutationObserver(handleDomChanges);
             try {
-                scrollObserver.observe(sourcePanel, { childList: true, subtree: true, characterData: true });
+                // EXCLUDED characterData to reduce useless rapid firing callbacks during typing or loading spinners
+                scrollObserver.observe(sourcePanel, { childList: true, subtree: true });
             } catch (e) {
                 console.error("Sources+: Failed to observe source panel", e);
             }
 
-            // 2. Lightweight Synchronization Heartbeat: Fallback checker for sneaking DOM changes
-            healthCheckInterval = setInterval(() => {
-                // If we are currently actively manipulating checkboxes, skip the heartbeat
-                if (isSyncingState || isProcessingQueue) return;
+            // 2. Lightweight Synchronization Heartbeat: Adaptive Backoff Polling
+            let currentHeartbeatInterval = 2500;
+            const maxHeartbeatInterval = 10000;
+
+            const runHeartbeat = () => {
+                // If we are currently actively manipulating checkboxes, skip the heartbeat and keep rate fast
+                if (isSyncingState || isProcessingQueue) {
+                    currentHeartbeatInterval = 2500;
+                    healthCheckInterval = setTimeout(runHeartbeat, currentHeartbeatInterval);
+                    return;
+                }
 
                 const currentElements = queryAllElements(DEPS.row);
                 const nativeCount = currentElements.length;
@@ -1600,8 +1791,19 @@
 
                 if (nativeCount !== trackedCount && nativeCount > 0) {
                     debouncedScanAndSync();
+                    // Reset interval on detection of out of sync state
+                    currentHeartbeatInterval = 2500;
+                } else {
+                    // Backoff smoothly if nothing changes
+                    currentHeartbeatInterval = Math.min(currentHeartbeatInterval + 1000, maxHeartbeatInterval);
                 }
-            }, 2500);
+
+                // Recursively set timeout to act as an adaptable interval
+                healthCheckInterval = setTimeout(runHeartbeat, currentHeartbeatInterval);
+            };
+
+            // Start the heartbeat
+            healthCheckInterval = setTimeout(runHeartbeat, currentHeartbeatInterval);
 
             loadState((loadedEnabledMap) => { scanAndSyncSources(loadedEnabledMap, true); render(); });
         } else {

@@ -22,7 +22,7 @@
 /* Some basic styling for our own UI */
 .sp-container {
   padding: 0 16px 16px 16px;
-  border-bottom: 1px solid #ccc;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 /* ==================================================== */
@@ -32,18 +32,21 @@
 /* Add soft shadows, rounded corners, and animations to the Google native secondary menu */
 .cdk-overlay-pane .mat-mdc-menu-panel,
 .cdk-overlay-pane [role="menu"] {
-  border-radius: 12px !important;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-  border: 1px solid rgba(128, 128, 128, 0.15) !important;
-  animation: sp-menu-pop 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08) !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  animation: sp-menu-pop 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards !important;
   overflow: hidden !important;
-  /* To keep rounded corners for background */
   transform-origin: top left;
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1) !important;
 }
 
 @keyframes sp-menu-pop {
   0% {
-    transform: scale(0.95) translateY(-6px);
+    transform: scale(0.95) translateY(-4px);
     opacity: 0;
   }
 
@@ -55,10 +58,16 @@
 
 /* Round the individual native menu items */
 .cdk-overlay-pane .mat-mdc-menu-content .mat-mdc-menu-item {
-  border-radius: 12px !important;
-  margin: 2px 6px !important;
-  width: calc(100% - 12px) !important;
-  transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+  border-radius: 10px !important;
+  margin: 4px 8px !important;
+  width: calc(100% - 16px) !important;
+  transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
+.cdk-overlay-pane .mat-mdc-menu-content .mat-mdc-menu-item:hover {
+  transform: scale(0.98) !important;
+  opacity: 0.8 !important;
+  background-color: transparent !important;
 }
 
 /* Dark mode adjustments for native menu */
@@ -66,8 +75,8 @@
 
   .cdk-overlay-pane .mat-mdc-menu-panel,
   .cdk-overlay-pane [role="menu"] {
-    background-color: rgba(30, 30, 32, 0.98) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    background-color: rgba(28, 28, 30, 0.85) !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25) !important;
   }
 }

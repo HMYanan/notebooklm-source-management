@@ -74,5 +74,11 @@
                 "content": "$1"
             }
         }
+    },
+    "ui_move_to_folder": {
+        "message": "Move to Folder"
+    },
+    "ui_empty_folders": {
+        "message": "No folders available yet.\nCreate one first."
     }
 }
