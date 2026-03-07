@@ -130,19 +130,39 @@
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
     }
 
+    let freshRowCache = null;
+
     function findFreshCheckbox(sourceKey) {
         // Find the fresh row element from the DOM using the source title
         const sourceData = sourcesByKey.get(sourceKey);
         if (!sourceData) return null;
 
-        const sourceElements = queryAllElements(DEPS.row);
-        for (const el of sourceElements) {
-            const titleEl = findElement(DEPS.title, el);
-            if (titleEl && titleEl.textContent.trim() === sourceData.title) {
-                // Return the checkbox from that row
-                return findElement(DEPS.checkbox, el);
+        if (!freshRowCache) {
+            freshRowCache = new Map();
+            const sourceElements = queryAllElements(DEPS.row);
+            for (const el of sourceElements) {
+                const titleEl = findElement(DEPS.title, el);
+                if (titleEl) {
+                    const titleText = titleEl.textContent.trim();
+                    // only store the first matching element for a title (preserves original logic)
+                    if (!freshRowCache.has(titleText)) {
+                        freshRowCache.set(titleText, el);
+                    }
+                }
             }
+
+            // Invalidate the cache after the current macro/micro task batch
+            // so it stays fresh on subsequent user actions
+            queueMicrotask(() => {
+                freshRowCache = null;
+            });
         }
+
+        const freshRow = freshRowCache.get(sourceData.title);
+        if (freshRow) {
+            return findElement(DEPS.checkbox, freshRow);
+        }
+
         return null;
     }
 
