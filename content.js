@@ -16,7 +16,6 @@
     const SOURCE_ROW_SELECTOR = DEPS.row[0];
     const SOURCE_TITLE_SELECTOR = DEPS.title[0];
     const SOURCE_CHECKBOX_SELECTOR = DEPS.checkbox[0];
-    const SOURCE_MORE_BUTTON_SELECTOR = DEPS.moreBtn[0];
     const SOURCE_ICON_SELECTOR = DEPS.icon[0];
 
     // --- State Management ---
