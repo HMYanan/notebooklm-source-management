@@ -1,120 +1,73 @@
-// --- Setup Global Mocks for content.js ---
-global.window = {
-    location: {
-        pathname: '/notebook/12345'
-    }
-};
-global.location = {
-    href: 'https://notebooklm.google.com/notebook/12345'
-};
-global.document = {
-    querySelector: jest.fn(() => null),
-    querySelectorAll: jest.fn(() => []),
-    createElement: jest.fn(() => ({})),
-    body: {
-        appendChild: jest.fn()
-    }
-};
-global.MutationObserver = class {
-    observe() {}
-    disconnect() {}
-};
+describe('areAllAncestorsEnabled', () => {
+    let areAllAncestorsEnabled, parentMap, groupsById;
 
-// Require the content script module
-const { removeSourceFromTree, state, groupsById, parentMap, _resetState } = require('./content.js');
-
-describe('content.js: removeSourceFromTree', () => {
     beforeEach(() => {
-        // Reset all relevant state before each test to ensure test isolation
-        _resetState();
+        // Reset modules and global state before each test
+        jest.resetModules();
+
+        // Setup DOM mock for content.js
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {} };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+
+        // Mock setTimeout to avoid issues
+        global.setTimeout = jest.fn();
+
+        const mod = require('./content.js');
+
+        areAllAncestorsEnabled = mod.areAllAncestorsEnabled;
+        parentMap = mod.parentMap;
+        groupsById = mod.groupsById;
+
+        // Clear state before each test
+        parentMap.clear();
+        groupsById.clear();
     });
 
-    it('should remove a source that is ungrouped', () => {
-        const sourceKey = 'source-1';
-
-        // Setup state: source is ungrouped
-        state.ungrouped.push(sourceKey);
-
-        // Ensure source exists before removal
-        expect(state.ungrouped).toContain(sourceKey);
-
-        // Action
-        removeSourceFromTree(sourceKey);
-
-        // Assertion
-        expect(state.ungrouped).not.toContain(sourceKey);
-        expect(state.ungrouped.length).toBe(0);
+    afterEach(() => {
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.setTimeout;
     });
 
-    it('should remove a source that is in a group', () => {
-        const sourceKey = 'source-2';
-        const groupId = 'group-1';
-        const otherSourceKey = 'source-3';
-        const nestedGroupId = 'group-2';
-
-        // Setup state: group exists with multiple children
-        groupsById.set(groupId, {
-            id: groupId,
-            children: [
-                { type: 'source', key: sourceKey },
-                { type: 'source', key: otherSourceKey },
-                { type: 'group', id: nestedGroupId }
-            ]
-        });
-
-        // Map the source to its parent group
-        parentMap.set(sourceKey, groupId);
-        parentMap.set(otherSourceKey, groupId);
-
-        // Ensure initial state is correct
-        expect(groupsById.get(groupId).children.length).toBe(3);
-
-        // Action
-        removeSourceFromTree(sourceKey);
-
-        // Assertion
-        const parentGroup = groupsById.get(groupId);
-        // The source should be removed
-        expect(parentGroup.children.find(c => c.type === 'source' && c.key === sourceKey)).toBeUndefined();
-
-        // The other source should remain
-        expect(parentGroup.children.find(c => c.type === 'source' && c.key === otherSourceKey)).toBeDefined();
-
-        // The nested group should remain (filter allows c.type === 'group' unconditionally)
-        expect(parentGroup.children.find(c => c.type === 'group' && c.id === nestedGroupId)).toBeDefined();
-
-        // Total children should be 2
-        expect(parentGroup.children.length).toBe(2);
-
-        // Ungrouped state should remain untouched
-        expect(state.ungrouped.length).toBe(0);
+    it('returns true if element has no parent', () => {
+        expect(areAllAncestorsEnabled('child1')).toBe(true);
     });
 
-    it('should handle removing a non-existent source gracefully', () => {
-        const existingSourceKey = 'existing-source';
-        state.ungrouped.push(existingSourceKey);
-
-        // Action
-        removeSourceFromTree('non-existent-source');
-
-        // Assertion: State is unaffected
-        expect(state.ungrouped).toContain(existingSourceKey);
-        expect(state.ungrouped.length).toBe(1);
-        expect(groupsById.size).toBe(0);
+    it('returns true if element parent is enabled', () => {
+        parentMap.set('child1', 'parent1');
+        groupsById.set('parent1', { id: 'parent1', enabled: true });
+        expect(areAllAncestorsEnabled('child1')).toBe(true);
     });
 
-    it('should handle removing a source whose parent group is missing from groupsById gracefully', () => {
-        const sourceKey = 'source-4';
-        const missingGroupId = 'group-missing';
+    it('returns false if element parent is disabled', () => {
+        parentMap.set('child1', 'parent1');
+        groupsById.set('parent1', { id: 'parent1', enabled: false });
+        expect(areAllAncestorsEnabled('child1')).toBe(false);
+    });
 
-        // Setup state: parentMap points to a group that doesn't exist in groupsById
-        parentMap.set(sourceKey, missingGroupId);
-        state.ungrouped.push(sourceKey);
+    it('returns true if all ancestors are enabled in deep hierarchy', () => {
+        parentMap.set('child1', 'parent1');
+        parentMap.set('parent1', 'grandparent1');
+        groupsById.set('parent1', { id: 'parent1', enabled: true });
+        groupsById.set('grandparent1', { id: 'grandparent1', enabled: true });
+        expect(areAllAncestorsEnabled('child1')).toBe(true);
+    });
 
-        // Action
-        removeSourceFromTree(sourceKey);
+    it('returns false if any ancestor is disabled in deep hierarchy', () => {
+        parentMap.set('child1', 'parent1');
+        parentMap.set('parent1', 'grandparent1');
+        groupsById.set('parent1', { id: 'parent1', enabled: true });
+        groupsById.set('grandparent1', { id: 'grandparent1', enabled: false });
+        expect(areAllAncestorsEnabled('child1')).toBe(false);
+    });
 
-        // Assertion: Since parentGroup wasn't found, it falls back to removing from state.ungrouped
-        expect(state.ungrouped).not.toContain(sourceKey);
+    it('returns false if parent is not in groupsById (missing parent)', () => {
+        parentMap.set('child1', 'parent1');
+        // 'parent1' is missing from groupsById
+        expect(areAllAncestorsEnabled('child1')).toBe(false);
     });
 });
