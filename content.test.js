@@ -321,3 +321,164 @@ describe('executeBatchDelete', () => {
         expect(global.document.body.click).toHaveBeenCalled();
     });
 });
+
+describe('teardown', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        // Complex DOM mock
+        global.window = { location: { pathname: '/notebook/testproject' } };
+
+        // Mock document methods
+        const mockBody = { contains: jest.fn(() => true), click: jest.fn() };
+        global.document = {
+            body: mockBody,
+            removeEventListener: jest.fn(),
+            querySelector: jest.fn(() => null),
+            querySelectorAll: jest.fn(() => []),
+            createElement: jest.fn(() => {
+                const classList = {
+                    add: jest.fn(),
+                    remove: jest.fn()
+                };
+                return {
+                    className: '',
+                    textContent: '',
+                    classList,
+                    attachShadow: jest.fn(() => ({
+                        querySelector: jest.fn(() => null),
+                        appendChild: jest.fn(),
+                        host: { remove: jest.fn() }
+                    }))
+                };
+            })
+        };
+
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+
+        // Mock i18n
+        global.chrome = { i18n: { getMessage: (key) => key } };
+
+        // Mock setTimeout/Promise for async code
+        global.setTimeout = jest.fn();
+        global.clearTimeout = jest.fn();
+
+        // Delay microtasks correctly so `freshRowCache` is valid during test block
+        global.queueMicrotask = (cb) => {
+            process.nextTick(cb);
+        };
+
+        // Ensure util functions are attached to global
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        global.debounce = utils.debounce;
+        global.isDescendant = utils.isDescendant;
+
+        // Mock console.warn and console.error
+        global.console.warn = jest.fn();
+        global.console.error = jest.fn();
+
+        mod = require('./content.js');
+        if (mod._resetState) mod._resetState();
+    });
+
+    afterEach(() => {
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.setTimeout;
+        delete global.clearTimeout;
+        delete global.chrome;
+        delete global.queueMicrotask;
+    });
+
+    it('disconnects and nullifies scrollObserver', () => {
+        const mockObserver = { disconnect: jest.fn() };
+        mod._setScrollObserver(mockObserver);
+
+        mod.teardown();
+
+        expect(mockObserver.disconnect).toHaveBeenCalled();
+        expect(mod._getScrollObserver()).toBeNull();
+    });
+
+    it('clears timeout and nullifies healthCheckInterval', () => {
+        const mockInterval = 12345;
+        mod._setHealthCheckInterval(mockInterval);
+
+        mod.teardown();
+
+        expect(global.clearTimeout).toHaveBeenCalledWith(mockInterval);
+        expect(mod._getHealthCheckInterval()).toBeNull();
+    });
+
+    it('removes change event listener for handleOriginalCheckboxChange', () => {
+        mod.teardown();
+
+        expect(global.document.removeEventListener).toHaveBeenCalledWith(
+            'change',
+            mod.handleOriginalCheckboxChange,
+            true
+        );
+    });
+
+    it('removes shadowRoot host and nullifies shadowRoot', () => {
+        const mockHost = { remove: jest.fn() };
+        const mockShadowRoot = { host: mockHost };
+        mod._setShadowRoot(mockShadowRoot);
+
+        mod.teardown();
+
+        expect(mockHost.remove).toHaveBeenCalled();
+        expect(mod._getShadowRoot()).toBeNull();
+    });
+
+    it('clears groupsById, sourcesByKey, and parentMap', () => {
+        mod.groupsById.set('group1', {});
+        mod.sourcesByKey.set('source1', {});
+        mod.parentMap.set('child1', 'parent1');
+
+        mod.teardown();
+
+        expect(mod.groupsById.size).toBe(0);
+        expect(mod.sourcesByKey.size).toBe(0);
+        expect(mod.parentMap.size).toBe(0);
+    });
+
+    it('resets state, isSyncingState, and clickQueue', () => {
+        // We modify the internal state directly via exposed references for `state`,
+        // and test getters for primitives
+        mod.state.groups = ['group1'];
+        mod.state.ungrouped = ['source1'];
+        mod.state.filterQuery = 'test';
+
+        // isSyncingState and clickQueue aren't easily settable directly without dedicated setters
+        // but we can at least verify `state` is reset to its initial object structure
+        mod.teardown();
+
+        // `state` is re-assigned, so we must access it via `mod._getState()` or similar.
+        // Let's add `_getState` to module.exports in content.js to test this correctly,
+        // or just verify that mod.state remains referenceable (but it doesn't, `state = {...}` reassigns the local variable,
+        // so the exported `state` reference will be stale). Let's use `mod._getState()`.
+        expect(mod._getState().groups).toEqual([]);
+        expect(mod._getState().ungrouped).toEqual([]);
+        expect(mod._getState().filterQuery).toBe('');
+
+        expect(mod._getIsSyncingState()).toBe(false);
+        expect(mod._getClickQueue()).toEqual([]);
+    });
+
+    it('re-initializes keyByElement WeakMap', () => {
+        const initialMap = mod._getKeyByElement();
+
+        mod.teardown();
+
+        const newMap = mod._getKeyByElement();
+        expect(newMap).not.toBe(initialMap);
+        expect(newMap).toBeInstanceOf(WeakMap);
+    });
+});

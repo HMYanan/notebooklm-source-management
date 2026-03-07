@@ -2666,8 +2666,20 @@
             sourcesByKey,
             state,
             DEPS,
+            teardown,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
+            _getScrollObserver: () => scrollObserver,
+            _setScrollObserver: (val) => { scrollObserver = val; },
+            _getHealthCheckInterval: () => healthCheckInterval,
+            _setHealthCheckInterval: (val) => { healthCheckInterval = val; },
+            _getShadowRoot: () => shadowRoot,
+            _setShadowRoot: (val) => { shadowRoot = val; },
+            handleOriginalCheckboxChange,
+            _getKeyByElement: () => keyByElement,
+            _getIsSyncingState: () => isSyncingState,
+            _getClickQueue: () => clickQueue,
+            _getState: () => state,
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -2680,6 +2692,11 @@
                 parentMap.clear();
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
                 freshRowCache = null;
+                scrollObserver = null;
+                healthCheckInterval = null;
+                isSyncingState = false;
+                clickQueue = [];
+                keyByElement = new WeakMap();
             }
         };
     }
