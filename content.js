@@ -173,6 +173,7 @@
                 style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;'
             }, ['Dismiss'])
         ]);
+
         document.body.prepend(banner);
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
     }
