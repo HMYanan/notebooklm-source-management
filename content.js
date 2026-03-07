@@ -1317,7 +1317,7 @@
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) state.groups.splice(insertIndex, 0, draggedGroupId);
                 else state.groups.push(draggedGroupId);
-            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj)) {
+            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj, groupsById)) {
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) targetGroup.children.splice(insertIndex, 0, { type: 'group', id: draggedGroupId });
                 else targetGroup.children.push({ type: 'group', id: draggedGroupId });
