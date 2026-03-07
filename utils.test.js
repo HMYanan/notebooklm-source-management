@@ -130,4 +130,26 @@ describe('el function', () => {
         expect(element.childNodes[1]).toBe(span);
         expect(element.childNodes[2] instanceof TextNode).toBe(true);
     });
+
+    test('blocks insecure event handler attributes', () => {
+        const element = el('div', { onclick: 'alert(1)', onMouseOver: 'console.log("hover")' });
+        expect(element.hasAttribute('onclick')).toBe(false);
+        expect(element.hasAttribute('onMouseOver')).toBe(false);
+        // It shouldn't block attributes containing 'on' but not starting with it
+        const element2 = el('div', { 'data-icon': 'icon' });
+        expect(element2.getAttribute('data-icon')).toBe('icon');
+    });
+
+    test('blocks javascript URIs in sensitive attributes', () => {
+        const element = el('a', { href: 'javascript:alert(1)', src: ' javascript: void(0);', action: 'JAVAScript:something()', formaction: 'javasc\tript:alert(1)', srcdoc: 'java\nscript:alert(1)' });
+        expect(element.hasAttribute('href')).toBe(false);
+        expect(element.hasAttribute('src')).toBe(false);
+        expect(element.hasAttribute('action')).toBe(false);
+        expect(element.hasAttribute('formaction')).toBe(false);
+        expect(element.hasAttribute('srcdoc')).toBe(false);
+
+        // It should allow normal URLs
+        const safeElement = el('a', { href: 'https://example.com' });
+        expect(safeElement.getAttribute('href')).toBe('https://example.com');
+    });
 });

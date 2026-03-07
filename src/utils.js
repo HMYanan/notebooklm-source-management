@@ -15,6 +15,15 @@ function el(tag, attributes = {}, children = []) {
                 element.dataset[dKey] = dVal;
             }
         } else if (value !== false && value != null) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.startsWith('on')) {
+                console.warn(`Sources+: Blocked insecure attribute key: ${key}`);
+                continue;
+            }
+            if (['href', 'src', 'action', 'formaction', 'srcdoc'].includes(lowerKey) && String(value).toLowerCase().replace(/[\s\x00-\x1F]/g, '').startsWith('javascript:')) {
+                console.warn(`Sources+: Blocked insecure attribute value for ${key}`);
+                continue;
+            }
             element.setAttribute(key, value === true ? '' : value);
         }
     }
