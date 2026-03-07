@@ -2666,8 +2666,11 @@
             sourcesByKey,
             state,
             DEPS,
+            saveState,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
+            _setProjectId: (id) => { projectId = id; },
+            _setCustomHeight: (height) => { customHeight = height; },
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -2678,6 +2681,8 @@
                 groupsById.clear();
                 sourcesByKey.clear();
                 parentMap.clear();
+                customHeight = null;
+                projectId = null;
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
                 freshRowCache = null;
             }
