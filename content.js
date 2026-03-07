@@ -124,17 +124,57 @@
             });
         });
     }
-    function getProjectId() { const pathSegments = window.location.pathname.split('/'); const notebookIndex = pathSegments.indexOf('notebook'); if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) { return pathSegments[notebookIndex + 1]; } return null; }
-    function generateSourceKey(title, index) { let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
-    function showToast(message) { let toast = shadowRoot.querySelector('.sp-toast'); if (!toast) { toast = document.createElement('div'); toast.className = 'sp-toast'; shadowRoot.appendChild(toast); } toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
+
+    function getProjectId() {
+        const pathSegments = window.location.pathname.split('/');
+        const notebookIndex = pathSegments.indexOf('notebook');
+        if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) {
+            return pathSegments[notebookIndex + 1];
+        }
+        return null;
+    }
+
+    function generateSourceKey(title, index) {
+        let hash = 0;
+        for (let i = 0; i < title.length; i++) {
+            const char = title.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0;
+        }
+        const baseKey = `source_${hash}`;
+        if (sourcesByKey.has(baseKey)) {
+            return `${baseKey}_${index}`;
+        }
+        return baseKey;
+    }
+
+    function showToast(message) {
+        let toast = shadowRoot.querySelector('.sp-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'sp-toast';
+            shadowRoot.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
         if (existingError) return;
-        const banner = el('div', { id: 'sp-error-banner', style: 'position: fixed; top: 0; left: 0; right: 0; background: #ea4335; color: white; padding: 12px; text-align: center; z-index: 999999; font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);' }, [
+
+        const BANNER_STYLE = 'position: fixed; top: 0; left: 0; right: 0; background: #ea4335; color: white; padding: 12px; text-align: center; z-index: 999999; font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);';
+        const BUTTON_STYLE = 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;';
+
+        const banner = el('div', { id: 'sp-error-banner', style: BANNER_STYLE }, [
             el('strong', {}, ['Error: ']),
             message + ' ',
-            el('button', { id: 'sp-dismiss-error', style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;' }, ['Dismiss'])
+            el('button', { id: 'sp-dismiss-error', style: BUTTON_STYLE }, ['Dismiss'])
         ]);
+
         document.body.prepend(banner);
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
     }
