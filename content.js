@@ -2666,6 +2666,8 @@
             sourcesByKey,
             state,
             DEPS,
+            renderMoveToFolderModal,
+            _getShadowRoot: () => shadowRoot,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _resetState: () => {
