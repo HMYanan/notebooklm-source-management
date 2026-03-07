@@ -4,7 +4,6 @@
     // --- Selectors & Dependencies ---
     const DEPS = {
         panel: ['[data-testid="source-panel"]', '.source-panel'], // Fallbacks inside arrays
-        scroll: ['[data-testid="scroll-area"]', '.scroll-area-desktop', '.sources-list-container'],
         row: ['[data-testid="source-item"]', '.single-source-container'],
         title: ['[data-testid="source-title"]', '.source-title'],
         checkbox: ['input[type="checkbox"]', '.select-checkbox input[type="checkbox"]'],
@@ -13,7 +12,6 @@
     };
     // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
     const SOURCE_PANEL_SELECTOR = DEPS.panel[0];
-    const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
     const SOURCE_ROW_SELECTOR = DEPS.row[0];
     const SOURCE_TITLE_SELECTOR = DEPS.title[0];
     const SOURCE_CHECKBOX_SELECTOR = DEPS.checkbox[0];
