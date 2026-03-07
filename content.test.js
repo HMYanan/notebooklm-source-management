@@ -2,17 +2,13 @@ describe('areAllAncestorsEnabled', () => {
     let areAllAncestorsEnabled, parentMap, groupsById;
 
     beforeEach(() => {
-        // Reset modules and global state before each test
         jest.resetModules();
 
-        // Setup DOM mock for content.js
         global.window = { location: { pathname: '/notebook/testproject' } };
         global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
         global.MutationObserver = class { observe() {} disconnect() {} };
         global.location = { href: 'http://localhost' };
         global.chrome = { i18n: { getMessage: () => '' } };
-
-        // Mock setTimeout to avoid issues
         global.setTimeout = jest.fn();
 
         const mod = require('./content.js');
@@ -21,7 +17,6 @@ describe('areAllAncestorsEnabled', () => {
         parentMap = mod.parentMap;
         groupsById = mod.groupsById;
 
-        // Clear state before each test
         if (mod._resetState) mod._resetState();
     });
 
@@ -68,7 +63,6 @@ describe('areAllAncestorsEnabled', () => {
 
     it('returns false if parent is not in groupsById (missing parent)', () => {
         parentMap.set('child1', 'parent1');
-        // 'parent1' is missing from groupsById
         expect(areAllAncestorsEnabled('child1')).toBe(false);
     });
 });
@@ -79,10 +73,7 @@ describe('executeBatchDelete', () => {
     beforeEach(() => {
         jest.resetModules();
 
-        // Complex DOM mock
         global.window = { location: { pathname: '/notebook/testproject' } };
-
-        // Mock document methods
         const mockBody = { contains: jest.fn(() => true), click: jest.fn() };
         global.document = {
             body: mockBody,
@@ -107,25 +98,15 @@ describe('executeBatchDelete', () => {
 
         global.MutationObserver = class { observe() {} disconnect() {} };
         global.location = { href: 'http://localhost' };
-
-        // Mock i18n
         global.chrome = { i18n: { getMessage: (key) => key } };
-
-        // Mock setTimeout/Promise for async code
         global.setTimeout = (cb, ms) => cb();
+        global.queueMicrotask = (cb) => { process.nextTick(cb); };
 
-        // Delay microtasks correctly so `freshRowCache` is valid during test block
-        global.queueMicrotask = (cb) => {
-            process.nextTick(cb);
-        };
-
-        // Ensure util functions are attached to global
         const utils = require('./src/utils.js');
         global.el = utils.el;
         global.debounce = utils.debounce;
         global.isDescendant = utils.isDescendant;
 
-        // Mock console.warn and console.error
         global.console.warn = jest.fn();
         global.console.error = jest.fn();
 
@@ -153,7 +134,6 @@ describe('executeBatchDelete', () => {
         mod.pendingDeleteKeys.add('key1');
         mod._setIsDeletingSources(true);
         await mod.executeBatchDelete();
-        // Since it returns early, it shouldn't clear the keys
         expect(mod.pendingDeleteKeys.size).toBe(1);
     });
 
@@ -173,7 +153,6 @@ describe('executeBatchDelete', () => {
 
         const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn(), querySelector: jest.fn() };
         const mockConfirmBtn = { textContent: 'Delete', className: 'primary', click: jest.fn(), querySelector: jest.fn(), getAttribute: jest.fn() };
-        // We need an exact match for the array of buttons loop, so give it an iterator or make querySelectorAll return it directly.
         const mockDialog = {
             querySelectorAll: jest.fn(sel => {
                 if (sel === 'button') return [mockConfirmBtn];
@@ -193,7 +172,6 @@ describe('executeBatchDelete', () => {
         expect(mockDeleteMenuItem.click).toHaveBeenCalled();
         expect(mockConfirmBtn.click).toHaveBeenCalled();
 
-        // Assert cleanup
         expect(mod._getIsDeletingSources()).toBe(false);
         expect(mod.pendingDeleteKeys.size).toBe(0);
         expect(mod.state.isDeleteMode).toBe(false);
@@ -224,25 +202,18 @@ describe('executeBatchDelete', () => {
             })
         };
 
-        // Fix test logic around mockFreshCheckbox's closest call:
-        // closest takes an array of strings like `['[data-testid="source-item"]', '.single-source-container']`
-        // mockFreshCheckbox should return `mockFreshRow` when called.
         mockFreshCheckbox.closest = jest.fn((sel) => {
-            // If it's searching for the row, return our mocked row
             if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) {
                 return mockRowElement;
             }
             return null;
         });
 
-        // Also ensure mockRowElement is returned by findElement(DEPS.row)
-        // by making sure it has matching selector capabilities if querySelector is used.
         mockRowElement.matches = jest.fn((sel) => {
            if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) return true;
            return false;
         });
 
-        // Add closest onto mockRowElement as well just in case
         mockRowElement.closest = jest.fn((sel) => {
             if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) {
                 return mockRowElement;
@@ -250,29 +221,24 @@ describe('executeBatchDelete', () => {
             return null;
         });
 
-        // Setup cache structure correctly using our defined row and title
         global.document.querySelectorAll = jest.fn(sel => {
             if (mod.DEPS.row.includes(sel)) {
-                return [mockRowElement]; // Just return normal array, the manual iterators were causing the actual issue
+                return [mockRowElement];
             }
-            if (sel.includes('[role="menuitem"]')) return []; // No menu item to prevent further execution
+            if (sel.includes('[role="menuitem"]')) return [];
             return [];
         });
 
-        // The sourcesByKey element property MUST be truthy or `document.body.contains` will throw.
-        // Actually it tests `source.element` not `!document.body.contains(nativeMoreBtn)` correctly
-        // so we can give it an element, but one that fails contains.
         const disconnectedElement = {
-            querySelector: jest.fn(() => null) // Simulate missing moreBtn
+            querySelector: jest.fn(() => null)
         };
         mod.sourcesByKey.set('key2', { key: 'key2', title: 'Test Source', element: disconnectedElement, isDisabled: false });
-        // Make body.contains return false for this specific source
         global.document.body.contains = jest.fn(() => false);
 
         await mod.executeBatchDelete();
 
         expect(mockMoreBtn.click).toHaveBeenCalled();
-        expect(global.document.body.click).toHaveBeenCalled(); // Because menu item wasn't found
+        expect(global.document.body.click).toHaveBeenCalled();
     });
 
     it('skips disabled sources', async () => {
@@ -282,7 +248,7 @@ describe('executeBatchDelete', () => {
         await mod.executeBatchDelete();
 
         expect(global.document.querySelectorAll).not.toHaveBeenCalled();
-        expect(mod.pendingDeleteKeys.size).toBe(0); // Should still cleanup
+        expect(mod.pendingDeleteKeys.size).toBe(0);
     });
 
     it('clicks document.body if delete menu item is not found', async () => {
@@ -290,7 +256,7 @@ describe('executeBatchDelete', () => {
         const mockMoreBtn = { click: jest.fn() };
         mod.sourcesByKey.set('key3', { key: 'key3', element: { querySelector: () => mockMoreBtn }, isDisabled: false });
 
-        global.document.querySelectorAll = jest.fn(() => []); // Return empty for everything
+        global.document.querySelectorAll = jest.fn(() => []);
 
         await mod.executeBatchDelete();
 
@@ -305,7 +271,7 @@ describe('executeBatchDelete', () => {
 
         const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn() };
         const mockDialog = {
-            querySelectorAll: jest.fn(() => []) // No buttons found
+            querySelectorAll: jest.fn(() => [])
         };
 
         global.document.querySelectorAll = jest.fn(sel => {
@@ -322,64 +288,61 @@ describe('executeBatchDelete', () => {
     });
 });
 
-describe('teardown', () => {
+describe('saveState', () => {
+describe('findFreshCheckbox', () => {
     let mod;
 
     beforeEach(() => {
         jest.resetModules();
 
-        // Complex DOM mock
+        // Setup DOM mock for content.js
         global.window = { location: { pathname: '/notebook/testproject' } };
-
-        // Mock document methods
-        const mockBody = { contains: jest.fn(() => true), click: jest.fn() };
-        global.document = {
-            body: mockBody,
-            removeEventListener: jest.fn(),
-            querySelector: jest.fn(() => null),
-            querySelectorAll: jest.fn(() => []),
-            createElement: jest.fn(() => {
-                const classList = {
-                    add: jest.fn(),
-                    remove: jest.fn()
-                };
-                return {
-                    className: '',
-                    textContent: '',
-                    classList,
-                    attachShadow: jest.fn(() => ({
-                        querySelector: jest.fn(() => null),
-                        appendChild: jest.fn(),
-                        host: { remove: jest.fn() }
-                    }))
-                };
-            })
-        };
-
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
         global.MutationObserver = class { observe() {} disconnect() {} };
         global.location = { href: 'http://localhost' };
-
-        // Mock i18n
-        global.chrome = { i18n: { getMessage: (key) => key } };
-
-        // Mock setTimeout/Promise for async code
-        global.setTimeout = jest.fn();
-        global.clearTimeout = jest.fn();
-
-        // Delay microtasks correctly so `freshRowCache` is valid during test block
-        global.queueMicrotask = (cb) => {
-            process.nextTick(cb);
+        global.chrome = {
+            i18n: { getMessage: () => '' },
+            runtime: {
+                sendMessage: jest.fn(),
+                lastError: null
+            }
         };
+
+        // Mock setTimeout to call the function synchronously so debounced functions run immediately
+        global.setTimeout = (cb, ms) => cb();
+        global.clearTimeout = jest.fn();
 
         // Ensure util functions are attached to global
         const utils = require('./src/utils.js');
         global.el = utils.el;
-        global.debounce = utils.debounce;
+        // Make debounce execute synchronously for tests
+        global.debounce = (func) => (...args) => func(...args);
         global.isDescendant = utils.isDescendant;
+        // Setup DOM mock
+        global.document = {
+            querySelectorAll: jest.fn(() => []),
+            querySelector: jest.fn(() => null),
+            createElement: jest.fn(() => ({ attachShadow: () => ({}) }))
+        };
 
-        // Mock console.warn and console.error
-        global.console.warn = jest.fn();
-        global.console.error = jest.fn();
+        // Microtask queue processing control
+        let queuedTask = null;
+        global.queueMicrotask = jest.fn((cb) => {
+            queuedTask = cb;
+        });
+
+        global.processMicrotasks = () => {
+            if (queuedTask) {
+                queuedTask();
+                queuedTask = null;
+            }
+        };
+
+        // Prevent errors for missing globals
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
 
         mod = require('./content.js');
         if (mod._resetState) mod._resetState();
@@ -393,92 +356,167 @@ describe('teardown', () => {
         delete global.setTimeout;
         delete global.clearTimeout;
         delete global.chrome;
-        delete global.queueMicrotask;
+        delete global.debounce;
     });
 
-    it('disconnects and nullifies scrollObserver', () => {
-        const mockObserver = { disconnect: jest.fn() };
-        mod._setScrollObserver(mockObserver);
-
-        mod.teardown();
-
-        expect(mockObserver.disconnect).toHaveBeenCalled();
-        expect(mod._getScrollObserver()).toBeNull();
+    it('returns early if projectId is missing', () => {
+        mod._setProjectId(null);
+        mod.saveState();
+        expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
     });
 
-    it('clears timeout and nullifies healthCheckInterval', () => {
-        const mockInterval = 12345;
-        mod._setHealthCheckInterval(mockInterval);
+    it('correctly extracts persistableState and calls storage set', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
 
-        mod.teardown();
+        // Populate state
+        mod.state.groups = ['group1', 'group2'];
+        mod.state.ungrouped = ['source3'];
 
-        expect(global.clearTimeout).toHaveBeenCalledWith(mockInterval);
-        expect(mod._getHealthCheckInterval()).toBeNull();
-    });
+        mod.groupsById.set('group1', { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] });
+        mod.groupsById.set('group2', { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] });
 
-    it('removes change event listener for handleOriginalCheckboxChange', () => {
-        mod.teardown();
+        mod.sourcesByKey.set('source1', { enabled: true });
+        mod.sourcesByKey.set('source2', { enabled: false });
+        mod.sourcesByKey.set('source3', { enabled: true });
 
-        expect(global.document.removeEventListener).toHaveBeenCalledWith(
-            'change',
-            mod.handleOriginalCheckboxChange,
-            true
+        mod._setCustomHeight(500);
+
+        mod.saveState();
+
+        const expectedKey = `sourcesPlusState_${projectId}`;
+        const expectedPersistableState = {
+            groups: ['group1', 'group2'],
+            groupsById: {
+                'group1': { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] },
+                'group2': { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] }
+            },
+            ungrouped: ['source3'],
+            enabledMap: {
+                'source1': true,
+                'source2': false,
+                'source3': true
+            },
+            customHeight: 500
+        };
+
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+            { type: 'SAVE_STATE', key: expectedKey, data: expectedPersistableState },
+            expect.any(Function)
         );
     });
 
-    it('removes shadowRoot host and nullifies shadowRoot', () => {
-        const mockHost = { remove: jest.fn() };
-        const mockShadowRoot = { host: mockHost };
-        mod._setShadowRoot(mockShadowRoot);
+    it('handles potential errors during debouncedStorageSet', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
 
-        mod.teardown();
+        // Simulate chrome.runtime.sendMessage throwing an error (e.g., context invalidated)
+        global.chrome.runtime.sendMessage.mockImplementationOnce(() => {
+            throw new Error('Extension context invalidated.');
+        });
 
-        expect(mockHost.remove).toHaveBeenCalled();
-        expect(mod._getShadowRoot()).toBeNull();
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(() => mod.saveState()).not.toThrow();
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            "Sources+: Context invalidated. Please refresh the page.",
+            expect.any(Error)
+        );
+
+        consoleWarnSpy.mockRestore();
+        delete global.document;
+        delete global.queueMicrotask;
+        delete global.processMicrotasks;
+        delete global.window;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
     });
 
-    it('clears groupsById, sourcesByKey, and parentMap', () => {
-        mod.groupsById.set('group1', {});
-        mod.sourcesByKey.set('source1', {});
-        mod.parentMap.set('child1', 'parent1');
-
-        mod.teardown();
-
-        expect(mod.groupsById.size).toBe(0);
-        expect(mod.sourcesByKey.size).toBe(0);
-        expect(mod.parentMap.size).toBe(0);
+    it('returns null if sourceKey is not found in sourcesByKey', () => {
+        expect(mod.findFreshCheckbox('invalidKey')).toBeNull();
     });
 
-    it('resets state, isSyncingState, and clickQueue', () => {
-        // We modify the internal state directly via exposed references for `state`,
-        // and test getters for primitives
-        mod.state.groups = ['group1'];
-        mod.state.ungrouped = ['source1'];
-        mod.state.filterQuery = 'test';
+    it('populates freshRowCache and finds the correct checkbox', () => {
+        const sourceTitle = 'Test Document';
+        mod.sourcesByKey.set('source1', { key: 'source1', title: sourceTitle });
 
-        // isSyncingState and clickQueue aren't easily settable directly without dedicated setters
-        // but we can at least verify `state` is reset to its initial object structure
-        mod.teardown();
+        const mockCheckbox = { type: 'checkbox' };
+        const mockTitleEl = { textContent: `  ${sourceTitle}  ` };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(sel)) return mockCheckbox;
+                return null;
+            })
+        };
 
-        // `state` is re-assigned, so we must access it via `mod._getState()` or similar.
-        // Let's add `_getState` to module.exports in content.js to test this correctly,
-        // or just verify that mod.state remains referenceable (but it doesn't, `state = {...}` reassigns the local variable,
-        // so the exported `state` reference will be stale). Let's use `mod._getState()`.
-        expect(mod._getState().groups).toEqual([]);
-        expect(mod._getState().ungrouped).toEqual([]);
-        expect(mod._getState().filterQuery).toBe('');
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
 
-        expect(mod._getIsSyncingState()).toBe(false);
-        expect(mod._getClickQueue()).toEqual([]);
+        const result = mod.findFreshCheckbox('source1');
+
+        expect(result).toBe(mockCheckbox);
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+        expect(mod._getFreshRowCache().get(sourceTitle)).toBe(mockRow);
+        expect(global.queueMicrotask).toHaveBeenCalled();
     });
 
-    it('re-initializes keyByElement WeakMap', () => {
-        const initialMap = mod._getKeyByElement();
+    it('returns null if no fresh row is found matching the title', () => {
+        mod.sourcesByKey.set('source2', { key: 'source2', title: 'Looking For This' });
 
-        mod.teardown();
+        const mockTitleEl = { textContent: 'Completely Different Title' };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null;
+            })
+        };
 
-        const newMap = mod._getKeyByElement();
-        expect(newMap).not.toBe(initialMap);
-        expect(newMap).toBeInstanceOf(WeakMap);
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        const result = mod.findFreshCheckbox('source2');
+
+        expect(result).toBeNull();
+    });
+
+    it('clears freshRowCache after microtasks execute', () => {
+        const sourceTitle = 'Temp Title';
+        mod.sourcesByKey.set('source3', { key: 'source3', title: sourceTitle });
+
+        const mockTitleEl = { textContent: sourceTitle };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null; // Don't even need a checkbox to test cache clearing
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        // First call populates cache and queues microtask
+        mod.findFreshCheckbox('source3');
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+
+        // Simulate microtask execution
+        global.processMicrotasks();
+
+        // Cache should be cleared
+        expect(mod._getFreshRowCache()).toBeNull();
     });
 });
