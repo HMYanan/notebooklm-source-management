@@ -197,12 +197,6 @@
                     }
                 }
             }
-
-            // Invalidate the cache after the current macro/micro task batch
-            // so it stays fresh on subsequent user actions
-            queueMicrotask(() => {
-                freshRowCache = null;
-            });
         }
 
         const freshRow = freshRowCache.get(sourceData.title);
@@ -1441,6 +1435,7 @@
                 }
             }
             if (needsReSync) {
+                freshRowCache = null;
                 debouncedScanAndSync();
             }
         } catch (e) {
@@ -1471,6 +1466,7 @@
         isSyncingState = false;
         clickQueue = [];
         isProcessingQueue = false;
+        freshRowCache = null;
     }
 
     function handleRouteChanged() {
