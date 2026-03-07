@@ -321,3 +321,167 @@ describe('executeBatchDelete', () => {
         expect(global.document.body.click).toHaveBeenCalled();
     });
 });
+
+describe('closeMoveToFolderModal', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        // Complex DOM mock
+        global.window = { location: { pathname: '/notebook/testproject' } };
+
+        // Mock document methods
+        const mockBody = { contains: jest.fn(() => true), click: jest.fn() };
+        global.document = {
+            body: mockBody,
+            querySelector: jest.fn(() => null),
+            querySelectorAll: jest.fn(() => []),
+            createElement: jest.fn(() => {
+                const classList = {
+                    add: jest.fn(),
+                    remove: jest.fn()
+                };
+                return {
+                    className: '',
+                    textContent: '',
+                    classList,
+                    attachShadow: jest.fn(() => ({
+                        querySelector: jest.fn(() => null),
+                        appendChild: jest.fn()
+                    }))
+                };
+            })
+        };
+
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+
+        // Mock i18n
+        global.chrome = { i18n: { getMessage: (key) => key } };
+
+        // Ensure util functions are attached to global
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        global.debounce = utils.debounce;
+        global.isDescendant = utils.isDescendant;
+
+        // Mock console.warn and console.error
+        global.console.warn = jest.fn();
+        global.console.error = jest.fn();
+
+        mod = require('./content.js');
+        if (mod._resetState) mod._resetState();
+
+        jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+        jest.useRealTimers();
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
+    });
+
+    it('returns early if shadowRoot is null', () => {
+        mod._setShadowRoot(null);
+        expect(() => mod.closeMoveToFolderModal()).not.toThrow();
+    });
+
+    it('adds closing classes and removes elements after 300ms', () => {
+        const mockBackdropParent = { removeChild: jest.fn() };
+        const mockModalParent = { removeChild: jest.fn() };
+
+        const mockBackdrop = {
+            classList: { remove: jest.fn(), add: jest.fn() },
+            parentNode: mockBackdropParent,
+            remove: jest.fn()
+        };
+
+        const mockModal = {
+            classList: { remove: jest.fn(), add: jest.fn() },
+            parentNode: mockModalParent,
+            remove: jest.fn()
+        };
+
+        const mockShadowRoot = {
+            getElementById: jest.fn(id => {
+                if (id === 'sp-move-backdrop') return mockBackdrop;
+                if (id === 'sp-move-modal') return mockModal;
+                return null;
+            })
+        };
+
+        mod._setShadowRoot(mockShadowRoot);
+
+        mod.closeMoveToFolderModal();
+
+        expect(mockModal.classList.remove).toHaveBeenCalledWith('visible');
+        expect(mockModal.classList.add).toHaveBeenCalledWith('closing');
+        expect(mockBackdrop.classList.remove).toHaveBeenCalledWith('visible');
+
+        // Elements shouldn't be removed immediately
+        expect(mockBackdropParent.removeChild).not.toHaveBeenCalled();
+        expect(mockModalParent.removeChild).not.toHaveBeenCalled();
+
+        jest.advanceTimersByTime(300);
+
+        // After 300ms, they should be removed via parentNode.removeChild
+        expect(mockBackdropParent.removeChild).toHaveBeenCalledWith(mockBackdrop);
+        expect(mockModalParent.removeChild).toHaveBeenCalledWith(mockModal);
+    });
+
+    it('does not throw when elements have no parentNode after 300ms', () => {
+        const mockBackdrop = {
+            classList: { remove: jest.fn(), add: jest.fn() },
+            parentNode: null, // Missing parentNode
+            remove: jest.fn()
+        };
+
+        const mockModal = {
+            classList: { remove: jest.fn(), add: jest.fn() },
+            parentNode: null, // Missing parentNode
+            remove: jest.fn()
+        };
+
+        const mockShadowRoot = {
+            getElementById: jest.fn(id => {
+                if (id === 'sp-move-backdrop') return mockBackdrop;
+                if (id === 'sp-move-modal') return mockModal;
+                return null;
+            })
+        };
+
+        mod._setShadowRoot(mockShadowRoot);
+
+        expect(() => {
+            mod.closeMoveToFolderModal();
+            jest.advanceTimersByTime(300);
+        }).not.toThrow();
+
+        // Ensure parentNode is null and we didn't call any remove methods
+        expect(mockBackdrop.remove).not.toHaveBeenCalled();
+    });
+
+    it('falls back to remove() if modal or backdrop are present but not both', () => {
+        const mockBackdrop = {
+            remove: jest.fn()
+        };
+
+        const mockShadowRoot = {
+            getElementById: jest.fn(id => {
+                if (id === 'sp-move-backdrop') return mockBackdrop;
+                return null; // missing modal
+            })
+        };
+
+        mod._setShadowRoot(mockShadowRoot);
+
+        mod.closeMoveToFolderModal();
+
+        // The else block handles fallback cleanup immediately
+        expect(mockBackdrop.remove).toHaveBeenCalled();
+    });
+});
