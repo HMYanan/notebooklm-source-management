@@ -1,6 +1,12 @@
 // background.js
 // Service Worker handling background tasks and local storage
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // Security: Validate sender origin to prevent unauthorized access
+    if (!sender.tab || !sender.tab.url || !sender.tab.url.startsWith('https://notebooklm.google.com/notebook/')) {
+        console.warn('Sources+: Received message from unauthorized sender:', sender);
+        return;
+    }
+
     if (request.type === 'SAVE_STATE') {
         chrome.storage.local.set({ [request.key]: request.data }, () => {
             if (chrome.runtime.lastError) {
