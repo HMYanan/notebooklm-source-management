@@ -283,18 +283,9 @@
                 if (deleteMenuItem) {
                     deleteMenuItem.click();
 
-                    // Wait for the confirmation dialog to appear after clicking delete
-                    await new Promise(resolve => setTimeout(resolve, 150));
-
                     const dialogs = document.querySelectorAll('mat-dialog-container, [role="dialog"], .cdk-dialog-container');
                     let confirmBtn = null;
                     for (const dialog of dialogs) {
-                        const dialogText = dialog.textContent.toLowerCase();
-                        // Only process dialogs that look like a deletion confirmation
-                        if (!dialogText.includes('delete') && !dialogText.includes('remove') && !dialogText.includes('删除') && !dialogText.includes('移除')) {
-                            continue;
-                        }
-
                         // Find all buttons in the dialog
                         const buttons = dialog.querySelectorAll('button');
                         for (const btn of buttons) {
@@ -303,32 +294,21 @@
                             // Stronger heuristic: Primary colored buttons or specific material structure
                             const isPrimaryButton = btn.className.includes('primary') || btn.className.includes('warn');
                             const hasCheckIcon = btn.querySelector('mat-icon')?.textContent.trim() === 'check';
-                            const isCancelBtn = btnText.includes('cancel') || btnText.includes('取消') || btnText.includes('no') || btnText.includes('否');
-
                             if (
-                                !isCancelBtn && (
-                                    isPrimaryButton || hasCheckIcon ||
-                                    btnText.includes('delete') || btnText.includes('删除') ||
-                                    btnText.includes('remove') || ariaLabel.includes('delete') ||
-                                    btnText.includes('yes') || btnText.includes('确定') ||
-                                    btnText.includes('确认') || btnText.includes('confirm')
-                                )
+                                isPrimaryButton || hasCheckIcon ||
+                                btnText.includes('delete') || btnText.includes('删除') ||
+                                btnText.includes('remove') || ariaLabel.includes('delete') ||
+                                btnText.includes('yes') || btnText.includes('确定') ||
+                                btnText.includes('确认') || btnText.includes('confirm')
                             ) {
                                 confirmBtn = btn;
                                 break;
                             }
                         }
-
-                        // Refined Fallback: If no explicit match, try to find a warn/primary button, but never blindly click the last button
+                        // Fallback: If no explicit match, usually the last button or the one with "primary/warn" class is confirm
                         if (!confirmBtn && buttons.length > 0) {
-                            const warnBtn = Array.from(buttons).find(b => {
-                                const t = b.textContent.toLowerCase();
-                                const isCancel = t.includes('cancel') || t.includes('取消');
-                                return !isCancel && (b.className.includes('warn') || b.className.includes('primary'));
-                            });
-                            if (warnBtn) {
-                                confirmBtn = warnBtn;
-                            }
+                            const warnBtn = Array.from(buttons).find(b => b.className.includes('warn') || b.className.includes('primary'));
+                            confirmBtn = warnBtn || buttons[buttons.length - 1];
                         }
 
                         if (confirmBtn) break;
