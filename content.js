@@ -789,7 +789,6 @@
         }
     }
     function removeGroupFromTree(id) { state.groups = state.groups.filter(gid => gid !== id); groupsById.forEach(g => { g.children = g.children.filter(c => c.id !== id); }); }
-    function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
 
     function handleInteraction(event) {
         const target = event.target;
@@ -1208,7 +1207,7 @@
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) state.groups.splice(insertIndex, 0, draggedGroupId);
                 else state.groups.push(draggedGroupId);
-            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj)) {
+            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj, groupsById)) {
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) targetGroup.children.splice(insertIndex, 0, { type: 'group', id: draggedGroupId });
                 else targetGroup.children.push({ type: 'group', id: draggedGroupId });
