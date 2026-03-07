@@ -130,19 +130,39 @@
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
     }
 
+    let freshRowCache = null;
+
     function findFreshCheckbox(sourceKey) {
         // Find the fresh row element from the DOM using the source title
         const sourceData = sourcesByKey.get(sourceKey);
         if (!sourceData) return null;
 
-        const sourceElements = queryAllElements(DEPS.row);
-        for (const el of sourceElements) {
-            const titleEl = findElement(DEPS.title, el);
-            if (titleEl && titleEl.textContent.trim() === sourceData.title) {
-                // Return the checkbox from that row
-                return findElement(DEPS.checkbox, el);
+        if (!freshRowCache) {
+            freshRowCache = new Map();
+            const sourceElements = queryAllElements(DEPS.row);
+            for (const el of sourceElements) {
+                const titleEl = findElement(DEPS.title, el);
+                if (titleEl) {
+                    const titleText = titleEl.textContent.trim();
+                    // only store the first matching element for a title (preserves original logic)
+                    if (!freshRowCache.has(titleText)) {
+                        freshRowCache.set(titleText, el);
+                    }
+                }
             }
+
+            // Invalidate the cache after the current macro/micro task batch
+            // so it stays fresh on subsequent user actions
+            queueMicrotask(() => {
+                freshRowCache = null;
+            });
         }
+
+        const freshRow = freshRowCache.get(sourceData.title);
+        if (freshRow) {
+            return findElement(DEPS.checkbox, freshRow);
+        }
+
         return null;
     }
 
@@ -516,7 +536,7 @@
             for (const child of group.children) {
                 if (child.type === 'source') {
                     const source = sourcesByKey.get(child.key);
-                    if (source && source.title && source.title.toLowerCase().includes(filterQuery)) return true;
+                    if (source && source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)) return true;
                 } else if (child.type === 'group') {
                     const childGroup = groupsById.get(child.id);
                     if (childGroup && hasMatchingDescendant(childGroup)) return true;
@@ -526,7 +546,7 @@
         };
 
         const renderSourceItem = (source) => {
-            if (!source || (filterQuery && (!source.title || !source.title.toLowerCase().includes(filterQuery)))) return null;
+            if (!source || (filterQuery && (!source.lowercaseTitle || !source.lowercaseTitle.includes(filterQuery)))) return null;
             const isGated = !areAllAncestorsEnabled(source.key);
             const isFailed = source.isDisabled && !source.isLoading;
             const isLoading = source.isLoading;
@@ -644,7 +664,7 @@
 
         const matchingUngrouped = state.ungrouped.filter(key => {
             const source = sourcesByKey.get(key);
-            return source && (!filterQuery || (source.title && source.title.toLowerCase().includes(filterQuery)));
+            return source && (!filterQuery || (source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)));
         });
 
         if (matchingUngrouped.length > 0) {
@@ -747,8 +767,18 @@
         // Use setTimeout instead of requestAnimationFrame to add a slight delay
         setTimeout(processClickQueue, 20);
     }
-    function findParentGroupOfSource(key) { const parentId = parentMap.get(key); return parentId ? (groupsById.get(parentId) || null) : null; }
-    function removeSourceFromTree(key) { state.ungrouped = state.ungrouped.filter(k => k !== key); groupsById.forEach(g => { g.children = g.children.filter(c => c.type === 'group' || c.key !== key); }); }
+    function findParentGroupOfSource(key) {
+        const parentId = parentMap.get(key);
+        return parentId ? (groupsById.get(parentId) || null) : null;
+    }
+    function removeSourceFromTree(key) {
+        const parentGroup = findParentGroupOfSource(key);
+        if (parentGroup) {
+            parentGroup.children = parentGroup.children.filter(c => c.type === 'group' || c.key !== key);
+        } else {
+            state.ungrouped = state.ungrouped.filter(k => k !== key);
+        }
+    }
     function removeGroupFromTree(id) { state.groups = state.groups.filter(gid => gid !== id); groupsById.forEach(g => { g.children = g.children.filter(c => c.id !== id); }); }
     function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
 
@@ -1227,7 +1257,8 @@
                 enabled = oldSourcesMap.has(key) ? oldSourcesMap.get(key) : (checkbox?.checked || false);
             }
 
-            sourcesByKey.set(key, { key, title, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
+            const lowercaseTitle = title ? title.toLowerCase() : '';
+            sourcesByKey.set(key, { key, title, lowercaseTitle, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
             keyByElement.set(el, key);
             if (!allKnownKeys.has(key)) {
                 state.ungrouped.push(key);

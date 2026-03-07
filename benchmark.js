@@ -1,53 +1,59 @@
-const { performance } = require('perf_hooks');
+const iterations = 10000;
+const sourcesCount = 1000;
+const filterQuery = 'test';
 
-// Mock data
+const sourcesByKey = new Map();
 const groupsById = new Map();
-const parentMap = new Map();
+const groupChildren = [];
 
-// Create 1000 groups, each with 10 sources
-for (let i = 0; i < 1000; i++) {
-  const groupId = `group_${i}`;
-  const children = [];
-  for (let j = 0; j < 10; j++) {
-    const key = `source_${i}_${j}`;
-    children.push({ type: 'source', key });
-    parentMap.set(key, groupId);
-  }
-  groupsById.set(groupId, { id: groupId, children });
+// Setup mock data
+for (let i = 0; i < sourcesCount; i++) {
+    const key = `source_${i}`;
+    sourcesByKey.set(key, { key, title: `Test Source Title ${i}`, lowercaseTitle: `test source title ${i}` });
+    groupChildren.push({ type: 'source', key });
 }
 
-// Target key to find (worst case, last group)
-const targetKey = 'source_999_9';
+groupsById.set('group_1', { id: 'group_1', children: groupChildren });
 
-function oldFindParentGroupOfSource(key) {
-  for (const group of groupsById.values()) {
-    if (group.children.some(c => c.type === 'source' && c.key === key)) return group;
-  }
-  return null;
+function runBaseline() {
+    const hasMatchingDescendant = (group) => {
+        if (!filterQuery) return true;
+        for (const child of group.children) {
+            if (child.type === 'source') {
+                const source = sourcesByKey.get(child.key);
+                if (source && source.title && source.title.toLowerCase().includes(filterQuery)) return true;
+            }
+        }
+        return false;
+    };
+
+    const start = process.hrtime.bigint();
+    for (let i = 0; i < iterations; i++) {
+        hasMatchingDescendant(groupsById.get('group_1'));
+    }
+    const end = process.hrtime.bigint();
+    console.log(`Baseline time: ${(end - start) / 1000000n}ms`);
 }
 
-function newFindParentGroupOfSource(key) {
-  const parentId = parentMap.get(key);
-  return parentId ? (groupsById.get(parentId) || null) : null;
+function runOptimized() {
+    const hasMatchingDescendant = (group) => {
+        if (!filterQuery) return true;
+        for (const child of group.children) {
+            if (child.type === 'source') {
+                const source = sourcesByKey.get(child.key);
+                if (source && source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)) return true;
+            }
+        }
+        return false;
+    };
+
+    const start = process.hrtime.bigint();
+    for (let i = 0; i < iterations; i++) {
+        hasMatchingDescendant(groupsById.get('group_1'));
+    }
+    const end = process.hrtime.bigint();
+    console.log(`Optimized time: ${(end - start) / 1000000n}ms`);
 }
 
-// Benchmark
-const iterations = 100000;
-
-const startOld = performance.now();
-for (let i = 0; i < iterations; i++) {
-  oldFindParentGroupOfSource(targetKey);
-}
-const endOld = performance.now();
-const timeOld = endOld - startOld;
-
-const startNew = performance.now();
-for (let i = 0; i < iterations; i++) {
-  newFindParentGroupOfSource(targetKey);
-}
-const endNew = performance.now();
-const timeNew = endNew - startNew;
-
-console.log(`Old method time: ${timeOld.toFixed(2)} ms`);
-console.log(`New method time: ${timeNew.toFixed(2)} ms`);
-console.log(`Improvement: ${(timeOld / timeNew).toFixed(2)}x faster`);
+runBaseline();
+runOptimized();
