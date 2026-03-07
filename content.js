@@ -2666,6 +2666,7 @@
             sourcesByKey,
             state,
             DEPS,
+            showToast,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _resetState: () => {

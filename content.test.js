@@ -321,3 +321,157 @@ describe('executeBatchDelete', () => {
         expect(global.document.body.click).toHaveBeenCalled();
     });
 });
+
+describe('showToast', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        // Complex DOM mock
+        global.window = { location: { pathname: '/notebook/testproject' } };
+
+        global.document = {
+            querySelector: jest.fn(() => null),
+            querySelectorAll: jest.fn(() => []),
+            createElement: jest.fn((tag) => {
+                const classList = {
+                    add: jest.fn(),
+                    remove: jest.fn()
+                };
+                return {
+                    tagName: tag.toUpperCase(),
+                    className: '',
+                    textContent: '',
+                    classList,
+                    attachShadow: jest.fn(function() { return this; }),
+                    querySelector: jest.fn(() => null),
+                    appendChild: jest.fn()
+                };
+            })
+        };
+
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
+
+        mod = require('./content.js');
+        if (mod._resetState) mod._resetState();
+
+        jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
+        jest.useRealTimers();
+    });
+
+    it('creates a new toast if one does not exist', () => {
+        mod.showToast('Test Message 1');
+        expect(global.document.createElement).toHaveBeenCalledWith('div');
+    });
+
+    it('reuses existing toast if one exists, updates text, and toggles class', () => {
+        const mockToast = {
+            className: 'sp-toast',
+            textContent: '',
+            classList: {
+                add: jest.fn(),
+                remove: jest.fn()
+            }
+        };
+
+        // Mock shadowRoot to return our existing toast
+        // We can do this by overriding the shadowRoot mock created in _resetState
+        // Since we can't directly access shadowRoot easily because it's local in content.js,
+        // we override document.createElement's attachShadow specifically to control it for this test.
+
+        global.document.createElement = jest.fn((tag) => {
+            if (tag === 'div') {
+                return {
+                    attachShadow: jest.fn(() => ({
+                        querySelector: jest.fn((sel) => sel === '.sp-toast' ? mockToast : null),
+                        appendChild: jest.fn()
+                    }))
+                };
+            }
+            return {
+                attachShadow: jest.fn(() => ({}))
+            };
+        });
+
+        // Reset state again to pick up our new attachShadow mock
+        mod._resetState();
+
+        // Clear previous mock calls from _resetState's document.createElement('div')
+        global.document.createElement.mockClear();
+
+        mod.showToast('Test Message 2');
+
+        // Should NOT create a new element (only the initial one during _resetState which we cleared)
+        expect(global.document.createElement).not.toHaveBeenCalled();
+
+        // Should update text
+        expect(mockToast.textContent).toBe('Test Message 2');
+
+        // Should add show class
+        expect(mockToast.classList.add).toHaveBeenCalledWith('show');
+
+        // Should remove show class after 3 seconds
+        expect(mockToast.classList.remove).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(3000);
+        expect(mockToast.classList.remove).toHaveBeenCalledWith('show');
+    });
+
+    it('creates a new toast, updates text, and toggles class when one does not exist', () => {
+        const mockToast = {
+            className: '',
+            textContent: '',
+            classList: {
+                add: jest.fn(),
+                remove: jest.fn()
+            }
+        };
+
+        const mockShadowRoot = {
+            querySelector: jest.fn(() => null), // returns null to trigger creation
+            appendChild: jest.fn()
+        };
+
+        let createCallCount = 0;
+        global.document.createElement = jest.fn((tag) => {
+            createCallCount++;
+            if (tag === 'div') {
+                if (createCallCount === 1) { // First call is from _resetState
+                    return {
+                        attachShadow: jest.fn(() => mockShadowRoot)
+                    };
+                } else { // Second call is inside showToast
+                    return mockToast;
+                }
+            }
+            return {
+                attachShadow: jest.fn(() => mockShadowRoot)
+            };
+        });
+
+        // Reset state to pick up the mock (triggers first createElement)
+        mod._resetState();
+
+        mod.showToast('Test Message 3');
+
+        expect(global.document.createElement).toHaveBeenCalledWith('div');
+        expect(mockToast.className).toBe('sp-toast');
+        expect(mockShadowRoot.appendChild).toHaveBeenCalledWith(mockToast);
+
+        expect(mockToast.textContent).toBe('Test Message 3');
+        expect(mockToast.classList.add).toHaveBeenCalledWith('show');
+
+        jest.advanceTimersByTime(3000);
+        expect(mockToast.classList.remove).toHaveBeenCalledWith('show');
+    });
+});
