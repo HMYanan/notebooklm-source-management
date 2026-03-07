@@ -12,7 +12,6 @@
         icon: ['mat-icon[class*="-icon-color"]', 'mat-icon']
     };
     // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
-    const SOURCE_PANEL_SELECTOR = DEPS.panel[0];
     const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
     const SOURCE_ROW_SELECTOR = DEPS.row[0];
     const SOURCE_TITLE_SELECTOR = DEPS.title[0];
