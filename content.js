@@ -2681,6 +2681,9 @@
                 projectId = null;
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
                 freshRowCache = null;
+                clickQueue = [];
+                isProcessingQueue = false;
+                isSyncingState = false;
             }
         };
     }
