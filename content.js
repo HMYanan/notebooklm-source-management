@@ -2660,7 +2660,20 @@
         module.exports = {
             areAllAncestorsEnabled,
             parentMap,
-            groupsById
+            groupsById,
+            scanAndSyncSources,
+            sourcesByKey,
+            state,
+            DEPS,
+            _resetState: () => {
+                groupsById.clear();
+                sourcesByKey.clear();
+                parentMap.clear();
+                state.groups = [];
+                state.ungrouped = [];
+                state.filterQuery = '';
+                state.isDeleteMode = false;
+            }
         };
     }
 
