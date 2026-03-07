@@ -2044,4 +2044,19 @@
     });
     routeObserver.observe(document.body, { subtree: true, childList: true });
 
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            removeSourceFromTree,
+            state,
+            groupsById,
+            parentMap,
+            _resetState: () => {
+                state.groups = [];
+                state.ungrouped = [];
+                groupsById.clear();
+                parentMap.clear();
+            }
+        };
+    }
+
 })();
