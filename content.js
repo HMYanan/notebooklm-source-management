@@ -2662,6 +2662,7 @@
             parentMap,
             groupsById,
             executeBatchDelete,
+            loadState,
             pendingDeleteKeys,
             sourcesByKey,
             state,

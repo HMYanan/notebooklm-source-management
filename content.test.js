@@ -321,3 +321,111 @@ describe('executeBatchDelete', () => {
         expect(global.document.body.click).toHaveBeenCalled();
     });
 });
+
+describe('loadState', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        // Setup DOM mock for content.js
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+
+        // Mock setTimeout to avoid issues
+        global.setTimeout = jest.fn();
+
+        // Ensure util functions are attached to global
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        global.debounce = utils.debounce;
+        global.isDescendant = utils.isDescendant;
+
+        global.chrome = {
+            runtime: {
+                sendMessage: jest.fn(),
+                lastError: undefined
+            },
+            i18n: { getMessage: () => '' }
+        };
+
+        // Mock console.warn and console.error
+        global.console.warn = jest.fn();
+        global.console.error = jest.fn();
+
+        mod = require('./content.js');
+        if (mod._resetState) mod._resetState();
+    });
+
+    afterEach(() => {
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.setTimeout;
+        delete global.chrome;
+    });
+
+    it('handles chrome.runtime.lastError and returns empty object', () => {
+        global.chrome.runtime.lastError = { message: 'Some extension error' };
+
+        global.chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+            callback({});
+        });
+
+        // Add dummy data to ensure buildParentMap logic behaves predictably if needed
+        mod.groupsById.set('group1', { id: 'group1', children: [] });
+
+        const callback = jest.fn();
+        mod.loadState(callback);
+
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+            { type: 'LOAD_STATE', key: 'sourcesPlusState_testproject' },
+            expect.any(Function)
+        );
+
+        expect(global.console.warn).toHaveBeenCalledWith(
+            "Sources+ 未能连接后台:",
+            { message: 'Some extension error' }
+        );
+
+        expect(callback).toHaveBeenCalledWith({});
+    });
+
+    it('calls callback with data on successful state load', () => {
+        global.chrome.runtime.lastError = undefined;
+
+        const mockData = {
+            data: {
+                enabledMap: { source1: true, source2: false }
+            }
+        };
+
+        global.chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+            callback(mockData);
+        });
+
+        const callback = jest.fn();
+        mod.loadState(callback);
+
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalled();
+        expect(callback).toHaveBeenCalledWith(mockData.data.enabledMap);
+        expect(global.console.warn).not.toHaveBeenCalled();
+    });
+
+    it('returns empty object if no project ID is found', () => {
+        global.window.location.pathname = '/notebook/'; // Invalid project path
+
+        // Re-require the module to trigger path recalculation in getProjectId
+        jest.resetModules();
+        mod = require('./content.js');
+
+        const callback = jest.fn();
+        mod.loadState(callback);
+
+        expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
+        expect(callback).toHaveBeenCalledWith(); // it returns callback() without args
+    });
+});
