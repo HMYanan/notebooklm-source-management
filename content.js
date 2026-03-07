@@ -2655,6 +2655,7 @@
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             areAllAncestorsEnabled,
+            findFreshCheckbox,
             parentMap,
             groupsById,
             executeBatchDelete,
@@ -2664,6 +2665,7 @@
             DEPS,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
+            _getFreshRowCache: () => freshRowCache,
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
