@@ -2,16 +2,13 @@ describe('areAllAncestorsEnabled', () => {
     let areAllAncestorsEnabled, parentMap, groupsById;
 
     beforeEach(() => {
-        // Reset modules and global state before each test
         jest.resetModules();
 
-        // Setup DOM mock for content.js
         global.window = { location: { pathname: '/notebook/testproject' } };
-        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {} };
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
         global.MutationObserver = class { observe() {} disconnect() {} };
         global.location = { href: 'http://localhost' };
-
-        // Mock setTimeout to avoid issues
+        global.chrome = { i18n: { getMessage: () => '' } };
         global.setTimeout = jest.fn();
 
         const mod = require('./content.js');
@@ -20,13 +17,7 @@ describe('areAllAncestorsEnabled', () => {
         parentMap = mod.parentMap;
         groupsById = mod.groupsById;
 
-        // Clear state before each test
-        if (mod._resetState) {
-            mod._resetState();
-        } else {
-            parentMap.clear();
-            groupsById.clear();
-        }
+        if (mod._resetState) mod._resetState();
     });
 
     afterEach(() => {
@@ -35,6 +26,7 @@ describe('areAllAncestorsEnabled', () => {
         delete global.MutationObserver;
         delete global.location;
         delete global.setTimeout;
+        delete global.chrome;
     });
 
     it('returns true if element has no parent', () => {
@@ -71,167 +63,55 @@ describe('areAllAncestorsEnabled', () => {
 
     it('returns false if parent is not in groupsById (missing parent)', () => {
         parentMap.set('child1', 'parent1');
-        // 'parent1' is missing from groupsById
         expect(areAllAncestorsEnabled('child1')).toBe(false);
     });
 });
 
-describe('scanAndSyncSources', () => {
-    let scanAndSyncSources, sourcesByKey, state, DEPS, mod;
-
-    class LocalHTMLElement {
-        constructor(tagName) {
-            this.tagName = tagName.toUpperCase();
-            this.className = '';
-            this.attributes = new Map();
-            this.dataset = {};
-            this.disabled = false;
-            this.checked = false;
-            this.childNodes = [];
-            this.parentNode = null;
-            this.classList = {
-                contains: (cls) => this.className.split(' ').includes(cls),
-                add: (cls) => { if (!this.classList.contains(cls)) this.className += ` ${cls}`; },
-                remove: (cls) => { this.className = this.className.split(' ').filter(c => c !== cls).join(' '); }
-            };
-        }
-        appendChild(child) {
-            child.parentNode = this;
-            this.childNodes.push(child);
-            return child;
-        }
-        prepend(child) {
-            child.parentNode = this;
-            this.childNodes.unshift(child);
-            return child;
-        }
-        setAttribute(key, value) {
-            this.attributes.set(key, String(value));
-            if (key === 'id') this.id = value;
-            if (key === 'role') this.role = value;
-        }
-        getAttribute(key) { const val = this.attributes.get(key); return val === undefined ? null : val; }
-        hasAttribute(key) { return this.attributes.has(key); }
-        addEventListener() {}
-        remove() {}
-        click() {}
-        contains(node) {
-            let current = node;
-            while (current) {
-                if (current === this) return true;
-                current = current.parentNode;
-            }
-            return false;
-        }
-        matches(selector) {
-            if (selector.startsWith('.')) return this.className.split(' ').includes(selector.slice(1));
-            if (selector.startsWith('[') && selector.endsWith(']')) {
-                const attr = selector.slice(1, -1).split('=');
-                if (attr.length === 1) return this.hasAttribute(attr[0]);
-                return this.getAttribute(attr[0]) === attr[1].replace(/"/g, '');
-            }
-            if (selector.includes('[')) {
-                const parts = selector.split('[');
-                const tag = parts[0].toUpperCase();
-                if (this.tagName !== tag) return false;
-                const attr = parts[1].slice(0, -1).split('=');
-                if (attr.length === 1) return this.hasAttribute(attr[0]);
-                return this.getAttribute(attr[0]) === attr[1].replace(/"/g, '');
-            }
-            return this.tagName === selector.toUpperCase();
-        }
-        closest(selector) {
-            let el = this;
-            while (el) {
-                if (el.matches(selector)) return el;
-                el = el.parentNode;
-            }
-            return null;
-        }
-        querySelector(selector) {
-            // Very simple comma-separated selector support for the mock
-            const selectors = selector.split(',').map(s => s.trim());
-            for (let sel of selectors) {
-                if (this.matches(sel)) return this;
-                for (let child of this.childNodes) {
-                    if (child.querySelector) {
-                        let found = child.querySelector(sel);
-                        if (found) return found;
-                    }
-                }
-            }
-            return null;
-        }
-        querySelectorAll(selector) {
-            let results = [];
-            const selectors = selector.split(',').map(s => s.trim());
-            for (let sel of selectors) {
-                if (this.matches(sel)) results.push(this);
-                for (let child of this.childNodes) {
-                    if (child.querySelectorAll) {
-                        results = results.concat(child.querySelectorAll(sel));
-                    }
-                }
-            }
-            return results;
-        }
-    }
+describe('executeBatchDelete', () => {
+    let mod;
 
     beforeEach(() => {
         jest.resetModules();
 
-        global.document = {
-            body: new LocalHTMLElement('body'),
-            createElement: (tag) => new LocalHTMLElement(tag),
-            createTextNode: (text) => ({ textContent: text, appendChild: () => {} }),
-            getElementById: (id) => {
-                const findId = (el) => {
-                    if (el.id === id) return el;
-                    if (el.attributes && el.attributes.get('id') === id) return el;
-                    if (el.dataset && el.dataset.id === id) return el;
-                    for (let child of el.childNodes || []) {
-                        let found = findId(child);
-                        if (found) return found;
-                    }
-                    return null;
-                };
-                let result = findId(global.document.body);
-                if (!result) {
-                    // Create dummy element if not found to avoid null errors in JEST env mocks
-                    result = new LocalHTMLElement('div');
-                    result.id = id;
-                    global.document.body.appendChild(result);
-                }
-                return result;
-            }
-        };
-        global.document.querySelector = (selector) => global.document.body.querySelector(selector);
-        global.document.querySelectorAll = (selector) => global.document.body.querySelectorAll(selector);
-
         global.window = { location: { pathname: '/notebook/testproject' } };
-        global.location = { href: 'http://localhost' };
-        global.MutationObserver = class { observe() {} disconnect() {} };
-        global.chrome = {
-            i18n: {
-                getMessage: (key) => key
-            }
+        const mockBody = { contains: jest.fn(() => true), click: jest.fn() };
+        global.document = {
+            body: mockBody,
+            querySelector: jest.fn(() => null),
+            querySelectorAll: jest.fn(() => []),
+            createElement: jest.fn(() => {
+                const classList = {
+                    add: jest.fn(),
+                    remove: jest.fn()
+                };
+                return {
+                    className: '',
+                    textContent: '',
+                    classList,
+                    attachShadow: jest.fn(() => ({
+                        querySelector: jest.fn(() => null),
+                        appendChild: jest.fn()
+                    }))
+                };
+            })
         };
-        global.setTimeout = jest.fn();
+
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
+        global.setTimeout = (cb, ms) => cb();
+        global.queueMicrotask = (cb) => { process.nextTick(cb); };
+
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        global.debounce = utils.debounce;
+        global.isDescendant = utils.isDescendant;
+
+        global.console.warn = jest.fn();
+        global.console.error = jest.fn();
 
         mod = require('./content.js');
-        scanAndSyncSources = mod.scanAndSyncSources;
-        sourcesByKey = mod.sourcesByKey;
-        state = mod.state;
-        DEPS = mod.DEPS || {
-            row: ['[data-testid="source-item"]', '.single-source-container'],
-            title: ['[data-testid="source-title"]', '.source-title'],
-            checkbox: ['input[type="checkbox"]', '.select-checkbox input[type="checkbox"]'],
-            icon: ['mat-icon[class*="-icon-color"]', 'mat-icon']
-        };
-
-        if (mod && mod._resetState) {
-            mod._resetState();
-        }
+        if (mod._resetState) mod._resetState();
     });
 
     afterEach(() => {
@@ -239,149 +119,404 @@ describe('scanAndSyncSources', () => {
         delete global.document;
         delete global.MutationObserver;
         delete global.location;
-        delete global.chrome;
         delete global.setTimeout;
+        delete global.chrome;
+        delete global.queueMicrotask;
     });
 
-    const createMockSourceRow = (titleText, isChecked = false, iconClass = '', isLoading = false) => {
-        const rowClass = DEPS.row ? DEPS.row[0].replace(/\[|\]|data-testid=|"|\./g, '') : 'source-item';
-        const titleClass = DEPS.title ? DEPS.title[0].replace(/\[|\]|data-testid=|"|\./g, '') : 'source-title';
-        const iconClassBase = 'mat-icon';
+    it('returns early if pendingDeleteKeys is empty', async () => {
+        mod.pendingDeleteKeys.clear();
+        await mod.executeBatchDelete();
+        expect(mod._getIsDeletingSources()).toBe(false);
+    });
 
-        const row = global.document.createElement('div');
-        row.setAttribute('data-testid', 'source-item');
-        row.className = rowClass;
+    it('returns early if already deleting', async () => {
+        mod.pendingDeleteKeys.add('key1');
+        mod._setIsDeletingSources(true);
+        await mod.executeBatchDelete();
+        expect(mod.pendingDeleteKeys.size).toBe(1);
+    });
 
-        const titleEl = global.document.createElement('div');
-        titleEl.setAttribute('data-testid', 'source-title');
-        titleEl.className = titleClass;
-        titleEl.textContent = titleText;
+    it('processes keys, finds more options, clicks delete and confirm', async () => {
+        mod.pendingDeleteKeys.add('key1');
+        mod.state.isDeleteMode = true;
 
-        const checkbox = global.document.createElement('input');
-        checkbox.setAttribute('type', 'checkbox');
-        checkbox.checked = isChecked;
+        const mockMoreBtn = { click: jest.fn() };
+        const mockSourceElement = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.moreBtn.includes(sel)) return mockMoreBtn;
+                return null;
+            })
+        };
 
-        const icon = global.document.createElement('mat-icon');
-        icon.className = iconClass ? `${iconClassBase} ${iconClass}` : iconClassBase;
-        icon.classList.add(iconClassBase);
-        if (iconClass) {
-            icon.classList.add(iconClass);
-        }
-        icon.classList[Symbol.iterator] = function* () {
-            const classes = this.className.split(' ').filter(Boolean);
-            for (let c of classes) {
-                yield c;
+        mod.sourcesByKey.set('key1', { key: 'key1', element: mockSourceElement, isDisabled: false });
+
+        const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn(), querySelector: jest.fn() };
+        const mockConfirmBtn = { textContent: 'Delete', className: 'primary', click: jest.fn(), querySelector: jest.fn(), getAttribute: jest.fn() };
+        const mockDialog = {
+            querySelectorAll: jest.fn(sel => {
+                if (sel === 'button') return [mockConfirmBtn];
+                return [];
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (sel.includes('[role="menuitem"]')) return [mockDeleteMenuItem];
+            if (sel.includes('dialog')) return [mockDialog];
+            return [];
+        });
+
+        await mod.executeBatchDelete();
+
+        expect(mockMoreBtn.click).toHaveBeenCalled();
+        expect(mockDeleteMenuItem.click).toHaveBeenCalled();
+        expect(mockConfirmBtn.click).toHaveBeenCalled();
+
+        expect(mod._getIsDeletingSources()).toBe(false);
+        expect(mod.pendingDeleteKeys.size).toBe(0);
+        expect(mod.state.isDeleteMode).toBe(false);
+    });
+
+    it('falls back to findFreshCheckbox if more button is not found initially', async () => {
+        mod.pendingDeleteKeys.add('key2');
+
+        const mockMoreBtn = { click: jest.fn() };
+        const mockFreshRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.moreBtn.includes(sel)) return mockMoreBtn;
+                return null;
+            })
+        };
+        const mockFreshCheckbox = {
+            closest: jest.fn(() => mockFreshRow)
+        };
+
+        const mockTitleEl = { textContent: 'Test Source' };
+
+        const mockRowElement = {
+            querySelector: jest.fn(s => {
+                if (mod.DEPS.title.includes(s)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(s)) return mockFreshCheckbox;
+                if (mod.DEPS.moreBtn.includes(s)) return mockMoreBtn;
+                return null;
+            })
+        };
+
+        mockFreshCheckbox.closest = jest.fn((sel) => {
+            if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) {
+                return mockRowElement;
             }
-        }.bind(icon);
-        icon.textContent = 'article';
+            return null;
+        });
 
-        row.appendChild(titleEl);
-        row.appendChild(checkbox);
-        row.appendChild(icon);
+        mockRowElement.matches = jest.fn((sel) => {
+           if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) return true;
+           return false;
+        });
 
-        if (isLoading) {
-            const spinner = global.document.createElement('mat-spinner');
-            row.appendChild(spinner);
-        }
+        mockRowElement.closest = jest.fn((sel) => {
+            if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) {
+                return mockRowElement;
+            }
+            return null;
+        });
 
-        return row;
-    };
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRowElement];
+            }
+            if (sel.includes('[role="menuitem"]')) return [];
+            return [];
+        });
 
-    it('scans DOM and populates sourcesByKey with correct properties on first load', () => {
-        const row1 = createMockSourceRow('Source 1', true, 'pdf-icon-color');
-        const row2 = createMockSourceRow('Source 2', false, 'youtube-icon-color');
+        const disconnectedElement = {
+            querySelector: jest.fn(() => null)
+        };
+        mod.sourcesByKey.set('key2', { key: 'key2', title: 'Test Source', element: disconnectedElement, isDisabled: false });
+        global.document.body.contains = jest.fn(() => false);
 
-        global.document.body.appendChild(row1);
-        global.document.body.appendChild(row2);
+        await mod.executeBatchDelete();
 
-        // Run with isFirstLoad = true, and empty loadedEnabledMap so it falls back to native checkbox
-        scanAndSyncSources({}, true);
-
-        expect(sourcesByKey.size).toBe(2);
-
-        // First source checks
-        const source1Key = Array.from(sourcesByKey.keys())[0];
-        const source1 = sourcesByKey.get(source1Key);
-        expect(source1.title).toBe('Source 1');
-        expect(source1.enabled).toBe(true);
-        expect(source1.iconColorClass).toBe('pdf-icon-color');
-        expect(source1.isDisabled).toBe(false);
-        expect(source1.isLoading).toBe(false);
-
-        // Second source checks
-        const source2Key = Array.from(sourcesByKey.keys())[1];
-        const source2 = sourcesByKey.get(source2Key);
-        expect(source2.title).toBe('Source 2');
-        expect(source2.enabled).toBe(false);
-        expect(source2.iconColorClass).toBe('youtube-icon-color');
+        expect(mockMoreBtn.click).toHaveBeenCalled();
+        expect(global.document.body.click).toHaveBeenCalled();
     });
 
-    it('respects loadedEnabledMap on first load', () => {
-        const row1 = createMockSourceRow('Loaded Source', false); // DOM says false
-        global.document.body.appendChild(row1);
+    it('skips disabled sources', async () => {
+        mod.pendingDeleteKeys.add('disabledKey');
+        mod.sourcesByKey.set('disabledKey', { key: 'disabledKey', element: {}, isDisabled: true });
 
-        // Run it once to get the key
-        scanAndSyncSources({}, true);
-        const sourceKey = Array.from(sourcesByKey.keys())[0];
+        await mod.executeBatchDelete();
 
-        mod._resetState();
-
-        const loadedMap = { [sourceKey]: true }; // Loaded map says true
-        scanAndSyncSources(loadedMap, true);
-
-        const source = sourcesByKey.get(sourceKey);
-        expect(source.enabled).toBe(true); // Should prefer loaded map
+        expect(global.document.querySelectorAll).not.toHaveBeenCalled();
+        expect(mod.pendingDeleteKeys.size).toBe(0);
     });
 
-    it('preserves existing state on re-render instead of trusting DOM', () => {
-        // Initial load setup
-        const row1 = createMockSourceRow('Persisted Source', true);
-        global.document.body.appendChild(row1);
-        scanAndSyncSources({}, true);
+    it('clicks document.body if delete menu item is not found', async () => {
+        mod.pendingDeleteKeys.add('key3');
+        const mockMoreBtn = { click: jest.fn() };
+        mod.sourcesByKey.set('key3', { key: 'key3', element: { querySelector: () => mockMoreBtn }, isDisabled: false });
 
-        const sourceKey = Array.from(sourcesByKey.keys())[0];
-        const source = sourcesByKey.get(sourceKey);
-        expect(source.enabled).toBe(true);
+        global.document.querySelectorAll = jest.fn(() => []);
 
-        // Now simulate a DOM re-render where native checkbox is unchecked
-        global.document.body.childNodes = [];
-        const newRow1 = createMockSourceRow('Persisted Source', false);
-        global.document.body.appendChild(newRow1);
+        await mod.executeBatchDelete();
 
-        // Run re-render sync
-        scanAndSyncSources({}, false);
-
-        // Should preserve the previous state (true)
-        const updatedSource = sourcesByKey.get(sourceKey);
-        expect(updatedSource.enabled).toBe(true);
+        expect(mockMoreBtn.click).toHaveBeenCalled();
+        expect(global.document.body.click).toHaveBeenCalled();
     });
 
-    it('flags sources as loading and disabled when loading element is present', () => {
-        const row = createMockSourceRow('Loading Source', true, '', true); // isLoading = true
-        global.document.body.appendChild(row);
+    it('clicks document.body if confirm button is not found', async () => {
+        mod.pendingDeleteKeys.add('key4');
+        const mockMoreBtn = { click: jest.fn() };
+        mod.sourcesByKey.set('key4', { key: 'key4', element: { querySelector: () => mockMoreBtn }, isDisabled: false });
 
-        scanAndSyncSources({}, true);
+        const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn() };
+        const mockDialog = {
+            querySelectorAll: jest.fn(() => [])
+        };
 
-        const sourceKey = Array.from(sourcesByKey.keys())[0];
-        const source = sourcesByKey.get(sourceKey);
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (sel.includes('[role="menuitem"]')) return [mockDeleteMenuItem];
+            if (sel.includes('dialog')) return [mockDialog];
+            return [];
+        });
 
-        expect(source.isLoading).toBe(true);
-        expect(source.isDisabled).toBe(true); // Loading sources should be disabled
+        await mod.executeBatchDelete();
+
+        expect(mockMoreBtn.click).toHaveBeenCalled();
+        expect(mockDeleteMenuItem.click).toHaveBeenCalled();
+        expect(global.document.body.click).toHaveBeenCalled();
+    });
+});
+
+describe('saveState', () => {
+describe('findFreshCheckbox', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        // Setup DOM mock for content.js
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = {
+            i18n: { getMessage: () => '' },
+            runtime: {
+                sendMessage: jest.fn(),
+                lastError: null
+            }
+        };
+
+        // Mock setTimeout to call the function synchronously so debounced functions run immediately
+        global.setTimeout = (cb, ms) => cb();
+        global.clearTimeout = jest.fn();
+
+        // Ensure util functions are attached to global
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        // Make debounce execute synchronously for tests
+        global.debounce = (func) => (...args) => func(...args);
+        global.isDescendant = utils.isDescendant;
+        // Setup DOM mock
+        global.document = {
+            querySelectorAll: jest.fn(() => []),
+            querySelector: jest.fn(() => null),
+            createElement: jest.fn(() => ({ attachShadow: () => ({}) }))
+        };
+
+        // Microtask queue processing control
+        let queuedTask = null;
+        global.queueMicrotask = jest.fn((cb) => {
+            queuedTask = cb;
+        });
+
+        global.processMicrotasks = () => {
+            if (queuedTask) {
+                queuedTask();
+                queuedTask = null;
+            }
+        };
+
+        // Prevent errors for missing globals
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
+
+        mod = require('./content.js');
+        if (mod._resetState) mod._resetState();
     });
 
-    it('handles missing elements gracefully', () => {
-        // Create an empty div that just matches the row selector
-        const emptyRow = global.document.createElement('div');
-        emptyRow.setAttribute('data-testid', 'source-item');
-        global.document.body.appendChild(emptyRow);
+    afterEach(() => {
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.setTimeout;
+        delete global.clearTimeout;
+        delete global.chrome;
+        delete global.debounce;
+    });
 
-        expect(() => scanAndSyncSources({}, true)).not.toThrow();
+    it('returns early if projectId is missing', () => {
+        mod._setProjectId(null);
+        mod.saveState();
+        expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
 
-        const sourceKey = Array.from(sourcesByKey.keys())[0];
-        const source = sourcesByKey.get(sourceKey);
+    it('correctly extracts persistableState and calls storage set', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
 
-        expect(source.title).toBe('Untitled Source');
-        expect(source.enabled).toBe(false);
-        expect(source.isDisabled).toBe(true); // No checkbox means disabled
+        // Populate state
+        mod.state.groups = ['group1', 'group2'];
+        mod.state.ungrouped = ['source3'];
+
+        mod.groupsById.set('group1', { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] });
+        mod.groupsById.set('group2', { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] });
+
+        mod.sourcesByKey.set('source1', { enabled: true });
+        mod.sourcesByKey.set('source2', { enabled: false });
+        mod.sourcesByKey.set('source3', { enabled: true });
+
+        mod._setCustomHeight(500);
+
+        mod.saveState();
+
+        const expectedKey = `sourcesPlusState_${projectId}`;
+        const expectedPersistableState = {
+            groups: ['group1', 'group2'],
+            groupsById: {
+                'group1': { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] },
+                'group2': { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] }
+            },
+            ungrouped: ['source3'],
+            enabledMap: {
+                'source1': true,
+                'source2': false,
+                'source3': true
+            },
+            customHeight: 500
+        };
+
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+            { type: 'SAVE_STATE', key: expectedKey, data: expectedPersistableState },
+            expect.any(Function)
+        );
+    });
+
+    it('handles potential errors during debouncedStorageSet', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
+
+        // Simulate chrome.runtime.sendMessage throwing an error (e.g., context invalidated)
+        global.chrome.runtime.sendMessage.mockImplementationOnce(() => {
+            throw new Error('Extension context invalidated.');
+        });
+
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(() => mod.saveState()).not.toThrow();
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            "Sources+: Context invalidated. Please refresh the page.",
+            expect.any(Error)
+        );
+
+        consoleWarnSpy.mockRestore();
+        delete global.document;
+        delete global.queueMicrotask;
+        delete global.processMicrotasks;
+        delete global.window;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
+    });
+
+    it('returns null if sourceKey is not found in sourcesByKey', () => {
+        expect(mod.findFreshCheckbox('invalidKey')).toBeNull();
+    });
+
+    it('populates freshRowCache and finds the correct checkbox', () => {
+        const sourceTitle = 'Test Document';
+        mod.sourcesByKey.set('source1', { key: 'source1', title: sourceTitle });
+
+        const mockCheckbox = { type: 'checkbox' };
+        const mockTitleEl = { textContent: `  ${sourceTitle}  ` };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(sel)) return mockCheckbox;
+                return null;
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        const result = mod.findFreshCheckbox('source1');
+
+        expect(result).toBe(mockCheckbox);
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+        expect(mod._getFreshRowCache().get(sourceTitle)).toBe(mockRow);
+        expect(global.queueMicrotask).toHaveBeenCalled();
+    });
+
+    it('returns null if no fresh row is found matching the title', () => {
+        mod.sourcesByKey.set('source2', { key: 'source2', title: 'Looking For This' });
+
+        const mockTitleEl = { textContent: 'Completely Different Title' };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null;
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        const result = mod.findFreshCheckbox('source2');
+
+        expect(result).toBeNull();
+    });
+
+    it('clears freshRowCache after microtasks execute', () => {
+        const sourceTitle = 'Temp Title';
+        mod.sourcesByKey.set('source3', { key: 'source3', title: sourceTitle });
+
+        const mockTitleEl = { textContent: sourceTitle };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null; // Don't even need a checkbox to test cache clearing
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        // First call populates cache and queues microtask
+        mod.findFreshCheckbox('source3');
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+
+        // Simulate microtask execution
+        global.processMicrotasks();
+
+        // Cache should be cleared
+        expect(mod._getFreshRowCache()).toBeNull();
     });
 });
