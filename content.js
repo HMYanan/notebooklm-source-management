@@ -788,8 +788,30 @@
             state.ungrouped = state.ungrouped.filter(k => k !== key);
         }
     }
-    function removeGroupFromTree(id) { state.groups = state.groups.filter(gid => gid !== id); groupsById.forEach(g => { g.children = g.children.filter(c => c.id !== id); }); }
-    function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
+    function removeGroupFromTree(id) {
+        state.groups = state.groups.filter(gid => gid !== id);
+        groupsById.forEach(g => {
+            g.children = g.children.filter(c => c.id !== id);
+        });
+    }
+
+    function isDescendant(possibleChild, possibleParent) {
+        if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) {
+            return true;
+        }
+        let found = false;
+        const visit = (g) => {
+            if (!g || found) return;
+            g.children.forEach(c => {
+                if (c.type === 'group') {
+                    if (c.id === possibleChild.id) found = true;
+                    visit(groupsById.get(c.id));
+                }
+            });
+        };
+        visit(possibleParent);
+        return found;
+    }
 
     function handleInteraction(event) {
         const target = event.target;
