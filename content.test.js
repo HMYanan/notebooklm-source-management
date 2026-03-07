@@ -321,3 +321,181 @@ describe('executeBatchDelete', () => {
         expect(global.document.body.click).toHaveBeenCalled();
     });
 });
+
+describe('processClickQueue', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        jest.useFakeTimers();
+
+        // Complex DOM mock setup
+        const mockBody = { contains: jest.fn(() => true) };
+        global.document = {
+            body: mockBody,
+            querySelector: jest.fn(() => null),
+            querySelectorAll: jest.fn(() => []),
+            createElement: jest.fn(() => {
+                const classList = { add: jest.fn(), remove: jest.fn() };
+                return {
+                    className: '', textContent: '', classList,
+                    attachShadow: jest.fn(() => ({
+                        querySelector: jest.fn(() => null),
+                        appendChild: jest.fn()
+                    }))
+                };
+            })
+        };
+
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
+
+        // Ensure queueMicrotask uses a nextTick instead of executing immediately
+        global.queueMicrotask = (cb) => {
+            process.nextTick(cb);
+        };
+
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        global.debounce = utils.debounce;
+        global.isDescendant = utils.isDescendant;
+
+        global.console.warn = jest.fn();
+        global.console.error = jest.fn();
+
+        mod = require('./content.js');
+        if (mod._resetState) mod._resetState();
+    });
+
+    afterEach(() => {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+        delete global.window;
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
+        delete global.queueMicrotask;
+    });
+
+    it('resets processing state and returns if queue is empty', () => {
+        mod._setIsProcessingQueue(true);
+        mod._setIsSyncingState(true);
+        mod._setClickQueue([]);
+
+        mod.processClickQueue();
+
+        expect(mod._getIsProcessingQueue()).toBe(false);
+        expect(mod._getIsSyncingState()).toBe(false);
+    });
+
+    it('processes up to batchSize items and sets timeout for the rest', () => {
+        const mockClickQueue = [];
+        for (let i = 0; i < 7; i++) {
+            mockClickQueue.push({
+                checkbox: { checked: false, click: jest.fn() },
+                desiredState: true,
+                sourceKey: `key${i}`
+            });
+        }
+
+        // Keep a copy of the original checkboxes to assert on them later
+        // since mod._setClickQueue array will be mutated by .shift()
+        const originalCheckboxes = mockClickQueue.map(item => item.checkbox);
+
+        mod._setClickQueue(mockClickQueue);
+
+        mod.processClickQueue();
+
+        // Should process first 5 (batchSize)
+        expect(mod._getIsProcessingQueue()).toBe(true);
+        expect(mod._getIsSyncingState()).toBe(true);
+        expect(mod._getClickQueue().length).toBe(2);
+
+        // Verify the first 5 were clicked
+        for (let i = 0; i < 5; i++) {
+            expect(originalCheckboxes[i].click).toHaveBeenCalledTimes(1);
+        }
+        // Verify the last 2 were NOT clicked yet
+        for (let i = 5; i < 7; i++) {
+            expect(originalCheckboxes[i].click).not.toHaveBeenCalled();
+        }
+
+        // Process next batch
+        jest.advanceTimersByTime(20);
+        expect(mod._getClickQueue().length).toBe(0);
+        expect(mod._getIsProcessingQueue()).toBe(true); // Still true because processClickQueue scheduled another 20ms call
+
+        // Verify the last 2 were clicked now
+        for (let i = 5; i < 7; i++) {
+            expect(originalCheckboxes[i].click).toHaveBeenCalledTimes(1);
+        }
+
+        jest.advanceTimersByTime(20);
+        expect(mod._getIsProcessingQueue()).toBe(false); // Finished
+    });
+
+    it('skips item if checkbox state is already desired', () => {
+        const mockCheckbox = { checked: true, click: jest.fn() };
+        mod._setClickQueue([
+            { checkbox: mockCheckbox, desiredState: true, sourceKey: 'key1' }
+        ]);
+
+        mod.processClickQueue();
+        expect(mockCheckbox.click).not.toHaveBeenCalled();
+        expect(mod._getClickQueue().length).toBe(0);
+    });
+
+    it('uses findFreshCheckbox if checkbox is no longer in document body', () => {
+        global.document.body.contains = jest.fn(() => false);
+        const mockOldCheckbox = { checked: false, click: jest.fn() };
+        const mockFreshCheckbox = { checked: false, click: jest.fn() };
+
+        // Mock the title element text content for findFreshCheckbox to find it
+        const mockTitleEl = { textContent: 'Fresh Title' };
+        const mockRowElement = {
+            querySelector: jest.fn(s => {
+                if (mod.DEPS.title.includes(s)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(s)) return mockFreshCheckbox;
+                return null;
+            })
+        };
+        // Also required: the sourcesByKey MUST have the source with the correct title
+        mod.sourcesByKey.set('key1', { key: 'key1', title: 'Fresh Title' });
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRowElement];
+            }
+            return [];
+        });
+
+        mod._setClickQueue([
+            { checkbox: mockOldCheckbox, desiredState: true, sourceKey: 'key1' }
+        ]);
+
+        mod.processClickQueue();
+
+        expect(mockOldCheckbox.click).not.toHaveBeenCalled();
+        expect(mockFreshCheckbox.click).toHaveBeenCalled();
+    });
+
+    it('skips item if checkbox is lost and findFreshCheckbox fails', () => {
+        global.document.body.contains = jest.fn(() => false);
+        const mockOldCheckbox = { checked: false, click: jest.fn() };
+
+        mod.sourcesByKey.set('key1', { key: 'key1', title: 'Fresh Title' });
+        global.document.querySelectorAll = jest.fn(() => []); // Return empty, so freshRowCache gets nothing
+
+        mod._setClickQueue([
+            { checkbox: mockOldCheckbox, desiredState: true, sourceKey: 'key1' }
+        ]);
+
+        mod.processClickQueue();
+
+        expect(mockOldCheckbox.click).not.toHaveBeenCalled();
+        expect(mod._getClickQueue().length).toBe(0); // Element skipped, queue shifted
+    });
+});

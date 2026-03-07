@@ -2668,6 +2668,13 @@
             DEPS,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
+            _getClickQueue: () => clickQueue,
+            _setClickQueue: (val) => { clickQueue = val; },
+            _getIsProcessingQueue: () => isProcessingQueue,
+            _setIsProcessingQueue: (val) => { isProcessingQueue = val; },
+            _getIsSyncingState: () => isSyncingState,
+            _setIsSyncingState: (val) => { isSyncingState = val; },
+            processClickQueue,
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -2680,6 +2687,9 @@
                 parentMap.clear();
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
                 freshRowCache = null;
+                clickQueue = [];
+                isProcessingQueue = false;
+                isSyncingState = false;
             }
         };
     }
