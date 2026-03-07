@@ -322,180 +322,235 @@ describe('executeBatchDelete', () => {
     });
 });
 
-describe('processClickQueue', () => {
+describe('saveState', () => {
+describe('findFreshCheckbox', () => {
     let mod;
 
     beforeEach(() => {
         jest.resetModules();
-        jest.useFakeTimers();
 
-        // Complex DOM mock setup
-        const mockBody = { contains: jest.fn(() => true) };
-        global.document = {
-            body: mockBody,
-            querySelector: jest.fn(() => null),
-            querySelectorAll: jest.fn(() => []),
-            createElement: jest.fn(() => {
-                const classList = { add: jest.fn(), remove: jest.fn() };
-                return {
-                    className: '', textContent: '', classList,
-                    attachShadow: jest.fn(() => ({
-                        querySelector: jest.fn(() => null),
-                        appendChild: jest.fn()
-                    }))
-                };
-            })
+        // Setup DOM mock for content.js
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = {
+            i18n: { getMessage: () => '' },
+            runtime: {
+                sendMessage: jest.fn(),
+                lastError: null
+            }
         };
 
+        // Mock setTimeout to call the function synchronously so debounced functions run immediately
+        global.setTimeout = (cb, ms) => cb();
+        global.clearTimeout = jest.fn();
+
+        // Ensure util functions are attached to global
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+        // Make debounce execute synchronously for tests
+        global.debounce = (func) => (...args) => func(...args);
+        global.isDescendant = utils.isDescendant;
+        // Setup DOM mock
+        global.document = {
+            querySelectorAll: jest.fn(() => []),
+            querySelector: jest.fn(() => null),
+            createElement: jest.fn(() => ({ attachShadow: () => ({}) }))
+        };
+
+        // Microtask queue processing control
+        let queuedTask = null;
+        global.queueMicrotask = jest.fn((cb) => {
+            queuedTask = cb;
+        });
+
+        global.processMicrotasks = () => {
+            if (queuedTask) {
+                queuedTask();
+                queuedTask = null;
+            }
+        };
+
+        // Prevent errors for missing globals
         global.window = { location: { pathname: '/notebook/testproject' } };
         global.MutationObserver = class { observe() {} disconnect() {} };
         global.location = { href: 'http://localhost' };
         global.chrome = { i18n: { getMessage: (key) => key } };
-
-        // Ensure queueMicrotask uses a nextTick instead of executing immediately
-        global.queueMicrotask = (cb) => {
-            process.nextTick(cb);
-        };
-
-        const utils = require('./src/utils.js');
-        global.el = utils.el;
-        global.debounce = utils.debounce;
-        global.isDescendant = utils.isDescendant;
-
-        global.console.warn = jest.fn();
-        global.console.error = jest.fn();
 
         mod = require('./content.js');
         if (mod._resetState) mod._resetState();
     });
 
     afterEach(() => {
-        jest.clearAllTimers();
-        jest.useRealTimers();
         delete global.window;
         delete global.document;
         delete global.MutationObserver;
         delete global.location;
+        delete global.setTimeout;
+        delete global.clearTimeout;
         delete global.chrome;
+        delete global.debounce;
+    });
+
+    it('returns early if projectId is missing', () => {
+        mod._setProjectId(null);
+        mod.saveState();
+        expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('correctly extracts persistableState and calls storage set', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
+
+        // Populate state
+        mod.state.groups = ['group1', 'group2'];
+        mod.state.ungrouped = ['source3'];
+
+        mod.groupsById.set('group1', { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] });
+        mod.groupsById.set('group2', { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] });
+
+        mod.sourcesByKey.set('source1', { enabled: true });
+        mod.sourcesByKey.set('source2', { enabled: false });
+        mod.sourcesByKey.set('source3', { enabled: true });
+
+        mod._setCustomHeight(500);
+
+        mod.saveState();
+
+        const expectedKey = `sourcesPlusState_${projectId}`;
+        const expectedPersistableState = {
+            groups: ['group1', 'group2'],
+            groupsById: {
+                'group1': { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] },
+                'group2': { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] }
+            },
+            ungrouped: ['source3'],
+            enabledMap: {
+                'source1': true,
+                'source2': false,
+                'source3': true
+            },
+            customHeight: 500
+        };
+
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+            { type: 'SAVE_STATE', key: expectedKey, data: expectedPersistableState },
+            expect.any(Function)
+        );
+    });
+
+    it('handles potential errors during debouncedStorageSet', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
+
+        // Simulate chrome.runtime.sendMessage throwing an error (e.g., context invalidated)
+        global.chrome.runtime.sendMessage.mockImplementationOnce(() => {
+            throw new Error('Extension context invalidated.');
+        });
+
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(() => mod.saveState()).not.toThrow();
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            "Sources+: Context invalidated. Please refresh the page.",
+            expect.any(Error)
+        );
+
+        consoleWarnSpy.mockRestore();
+        delete global.document;
         delete global.queueMicrotask;
+        delete global.processMicrotasks;
+        delete global.window;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
     });
 
-    it('resets processing state and returns if queue is empty', () => {
-        mod._setIsProcessingQueue(true);
-        mod._setIsSyncingState(true);
-        mod._setClickQueue([]);
-
-        mod.processClickQueue();
-
-        expect(mod._getIsProcessingQueue()).toBe(false);
-        expect(mod._getIsSyncingState()).toBe(false);
+    it('returns null if sourceKey is not found in sourcesByKey', () => {
+        expect(mod.findFreshCheckbox('invalidKey')).toBeNull();
     });
 
-    it('processes up to batchSize items and sets timeout for the rest', () => {
-        const mockClickQueue = [];
-        for (let i = 0; i < 7; i++) {
-            mockClickQueue.push({
-                checkbox: { checked: false, click: jest.fn() },
-                desiredState: true,
-                sourceKey: `key${i}`
-            });
-        }
+    it('populates freshRowCache and finds the correct checkbox', () => {
+        const sourceTitle = 'Test Document';
+        mod.sourcesByKey.set('source1', { key: 'source1', title: sourceTitle });
 
-        // Keep a copy of the original checkboxes to assert on them later
-        // since mod._setClickQueue array will be mutated by .shift()
-        const originalCheckboxes = mockClickQueue.map(item => item.checkbox);
-
-        mod._setClickQueue(mockClickQueue);
-
-        mod.processClickQueue();
-
-        // Should process first 5 (batchSize)
-        expect(mod._getIsProcessingQueue()).toBe(true);
-        expect(mod._getIsSyncingState()).toBe(true);
-        expect(mod._getClickQueue().length).toBe(2);
-
-        // Verify the first 5 were clicked
-        for (let i = 0; i < 5; i++) {
-            expect(originalCheckboxes[i].click).toHaveBeenCalledTimes(1);
-        }
-        // Verify the last 2 were NOT clicked yet
-        for (let i = 5; i < 7; i++) {
-            expect(originalCheckboxes[i].click).not.toHaveBeenCalled();
-        }
-
-        // Process next batch
-        jest.advanceTimersByTime(20);
-        expect(mod._getClickQueue().length).toBe(0);
-        expect(mod._getIsProcessingQueue()).toBe(true); // Still true because processClickQueue scheduled another 20ms call
-
-        // Verify the last 2 were clicked now
-        for (let i = 5; i < 7; i++) {
-            expect(originalCheckboxes[i].click).toHaveBeenCalledTimes(1);
-        }
-
-        jest.advanceTimersByTime(20);
-        expect(mod._getIsProcessingQueue()).toBe(false); // Finished
-    });
-
-    it('skips item if checkbox state is already desired', () => {
-        const mockCheckbox = { checked: true, click: jest.fn() };
-        mod._setClickQueue([
-            { checkbox: mockCheckbox, desiredState: true, sourceKey: 'key1' }
-        ]);
-
-        mod.processClickQueue();
-        expect(mockCheckbox.click).not.toHaveBeenCalled();
-        expect(mod._getClickQueue().length).toBe(0);
-    });
-
-    it('uses findFreshCheckbox if checkbox is no longer in document body', () => {
-        global.document.body.contains = jest.fn(() => false);
-        const mockOldCheckbox = { checked: false, click: jest.fn() };
-        const mockFreshCheckbox = { checked: false, click: jest.fn() };
-
-        // Mock the title element text content for findFreshCheckbox to find it
-        const mockTitleEl = { textContent: 'Fresh Title' };
-        const mockRowElement = {
-            querySelector: jest.fn(s => {
-                if (mod.DEPS.title.includes(s)) return mockTitleEl;
-                if (mod.DEPS.checkbox.includes(s)) return mockFreshCheckbox;
+        const mockCheckbox = { type: 'checkbox' };
+        const mockTitleEl = { textContent: `  ${sourceTitle}  ` };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(sel)) return mockCheckbox;
                 return null;
             })
         };
-        // Also required: the sourcesByKey MUST have the source with the correct title
-        mod.sourcesByKey.set('key1', { key: 'key1', title: 'Fresh Title' });
 
         global.document.querySelectorAll = jest.fn(sel => {
             if (mod.DEPS.row.includes(sel)) {
-                return [mockRowElement];
+                return [mockRow];
             }
             return [];
         });
 
-        mod._setClickQueue([
-            { checkbox: mockOldCheckbox, desiredState: true, sourceKey: 'key1' }
-        ]);
+        const result = mod.findFreshCheckbox('source1');
 
-        mod.processClickQueue();
-
-        expect(mockOldCheckbox.click).not.toHaveBeenCalled();
-        expect(mockFreshCheckbox.click).toHaveBeenCalled();
+        expect(result).toBe(mockCheckbox);
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+        expect(mod._getFreshRowCache().get(sourceTitle)).toBe(mockRow);
+        expect(global.queueMicrotask).toHaveBeenCalled();
     });
 
-    it('skips item if checkbox is lost and findFreshCheckbox fails', () => {
-        global.document.body.contains = jest.fn(() => false);
-        const mockOldCheckbox = { checked: false, click: jest.fn() };
+    it('returns null if no fresh row is found matching the title', () => {
+        mod.sourcesByKey.set('source2', { key: 'source2', title: 'Looking For This' });
 
-        mod.sourcesByKey.set('key1', { key: 'key1', title: 'Fresh Title' });
-        global.document.querySelectorAll = jest.fn(() => []); // Return empty, so freshRowCache gets nothing
+        const mockTitleEl = { textContent: 'Completely Different Title' };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null;
+            })
+        };
 
-        mod._setClickQueue([
-            { checkbox: mockOldCheckbox, desiredState: true, sourceKey: 'key1' }
-        ]);
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
 
-        mod.processClickQueue();
+        const result = mod.findFreshCheckbox('source2');
 
-        expect(mockOldCheckbox.click).not.toHaveBeenCalled();
-        expect(mod._getClickQueue().length).toBe(0); // Element skipped, queue shifted
+        expect(result).toBeNull();
+    });
+
+    it('clears freshRowCache after microtasks execute', () => {
+        const sourceTitle = 'Temp Title';
+        mod.sourcesByKey.set('source3', { key: 'source3', title: sourceTitle });
+
+        const mockTitleEl = { textContent: sourceTitle };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null; // Don't even need a checkbox to test cache clearing
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        // First call populates cache and queues microtask
+        mod.findFreshCheckbox('source3');
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+
+        // Simulate microtask execution
+        global.processMicrotasks();
+
+        // Cache should be cleared
+        expect(mod._getFreshRowCache()).toBeNull();
     });
 });
