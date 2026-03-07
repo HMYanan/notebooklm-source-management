@@ -197,12 +197,6 @@
                     }
                 }
             }
-
-            // Invalidate the cache after the current macro/micro task batch
-            // so it stays fresh on subsequent user actions
-            queueMicrotask(() => {
-                freshRowCache = null;
-            });
         }
 
         const freshRow = freshRowCache.get(sourceData.title);
@@ -1441,6 +1435,7 @@
                 }
             }
             if (needsReSync) {
+                freshRowCache = null;
                 debouncedScanAndSync();
             }
         } catch (e) {
@@ -1471,6 +1466,7 @@
         isSyncingState = false;
         clickQueue = [];
         isProcessingQueue = false;
+        freshRowCache = null;
     }
 
     function handleRouteChanged() {
@@ -2659,6 +2655,7 @@
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             areAllAncestorsEnabled,
+            findFreshCheckbox,
             parentMap,
             groupsById,
             executeBatchDelete,
@@ -2666,10 +2663,10 @@
             sourcesByKey,
             state,
             DEPS,
-            renderMoveToFolderModal,
-            _getShadowRoot: () => shadowRoot,
+            saveState,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
+            _getFreshRowCache: () => freshRowCache,
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -2680,8 +2677,13 @@
                 groupsById.clear();
                 sourcesByKey.clear();
                 parentMap.clear();
+                customHeight = null;
+                projectId = null;
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
                 freshRowCache = null;
+                clickQueue = [];
+                isProcessingQueue = false;
+                isSyncingState = false;
             }
         };
     }

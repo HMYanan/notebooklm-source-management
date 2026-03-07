@@ -288,135 +288,235 @@ describe('executeBatchDelete', () => {
     });
 });
 
-describe('renderMoveToFolderModal', () => {
+describe('saveState', () => {
+describe('findFreshCheckbox', () => {
     let mod;
-    let mockShadowRoot;
 
     beforeEach(() => {
         jest.resetModules();
 
+        // Setup DOM mock for content.js
         global.window = { location: { pathname: '/notebook/testproject' } };
-        global.document = {
-            getElementById: jest.fn(() => ({ addEventListener: () => {} })),
-            body: { prepend: jest.fn(), click: jest.fn() },
-            createElement: jest.fn(tag => {
-                const el = {
-                    tagName: tag.toUpperCase(),
-                    className: '',
-                    id: '',
-                    textContent: '',
-                    dataset: {},
-                    classList: {
-                        add: jest.fn(),
-                        remove: jest.fn(),
-                        contains: jest.fn()
-                    },
-                    style: {},
-                    setAttribute: jest.fn(),
-                    appendChild: jest.fn(child => child),
-                    querySelector: jest.fn(() => ({ addEventListener: jest.fn() })),
-                    querySelectorAll: jest.fn(() => []),
-                    addEventListener: jest.fn(),
-                    removeEventListener: jest.fn(),
-                    remove: jest.fn(),
-                    parentNode: {
-                        removeChild: jest.fn()
-                    },
-                    attachShadow: jest.fn(() => ({
-                        querySelector: jest.fn(),
-                        appendChild: jest.fn()
-                    }))
-                };
-                return el;
-            }),
-            createTextNode: jest.fn(text => text)
-        };
+        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
         global.MutationObserver = class { observe() {} disconnect() {} };
-        global.Node = class {};
         global.location = { href: 'http://localhost' };
-        global.chrome = { i18n: { getMessage: (key) => key } };
-        global.setTimeout = (cb, ms) => cb();
-        global.requestAnimationFrame = (cb) => cb();
+        global.chrome = {
+            i18n: { getMessage: () => '' },
+            runtime: {
+                sendMessage: jest.fn(),
+                lastError: null
+            }
+        };
 
+        // Mock setTimeout to call the function synchronously so debounced functions run immediately
+        global.setTimeout = (cb, ms) => cb();
+        global.clearTimeout = jest.fn();
+
+        // Ensure util functions are attached to global
         const utils = require('./src/utils.js');
         global.el = utils.el;
-        global.debounce = utils.debounce;
+        // Make debounce execute synchronously for tests
+        global.debounce = (func) => (...args) => func(...args);
         global.isDescendant = utils.isDescendant;
+        // Setup DOM mock
+        global.document = {
+            querySelectorAll: jest.fn(() => []),
+            querySelector: jest.fn(() => null),
+            createElement: jest.fn(() => ({ attachShadow: () => ({}) }))
+        };
 
-        global.console.warn = jest.fn();
-        global.console.error = jest.fn();
+        // Microtask queue processing control
+        let queuedTask = null;
+        global.queueMicrotask = jest.fn((cb) => {
+            queuedTask = cb;
+        });
+
+        global.processMicrotasks = () => {
+            if (queuedTask) {
+                queuedTask();
+                queuedTask = null;
+            }
+        };
+
+        // Prevent errors for missing globals
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
 
         mod = require('./content.js');
         if (mod._resetState) mod._resetState();
-
-        mockShadowRoot = mod._getShadowRoot();
-        if (mockShadowRoot) {
-            mockShadowRoot.appendChild = jest.fn();
-            mockShadowRoot.getElementById = jest.fn(() => null);
-        }
     });
 
     afterEach(() => {
         delete global.window;
         delete global.document;
         delete global.MutationObserver;
-        delete global.Node;
         delete global.location;
         delete global.setTimeout;
-        delete global.requestAnimationFrame;
+        delete global.clearTimeout;
+        delete global.chrome;
+        delete global.debounce;
+    });
+
+    it('returns early if projectId is missing', () => {
+        mod._setProjectId(null);
+        mod.saveState();
+        expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('correctly extracts persistableState and calls storage set', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
+
+        // Populate state
+        mod.state.groups = ['group1', 'group2'];
+        mod.state.ungrouped = ['source3'];
+
+        mod.groupsById.set('group1', { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] });
+        mod.groupsById.set('group2', { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] });
+
+        mod.sourcesByKey.set('source1', { enabled: true });
+        mod.sourcesByKey.set('source2', { enabled: false });
+        mod.sourcesByKey.set('source3', { enabled: true });
+
+        mod._setCustomHeight(500);
+
+        mod.saveState();
+
+        const expectedKey = `sourcesPlusState_${projectId}`;
+        const expectedPersistableState = {
+            groups: ['group1', 'group2'],
+            groupsById: {
+                'group1': { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] },
+                'group2': { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] }
+            },
+            ungrouped: ['source3'],
+            enabledMap: {
+                'source1': true,
+                'source2': false,
+                'source3': true
+            },
+            customHeight: 500
+        };
+
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+        expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+            { type: 'SAVE_STATE', key: expectedKey, data: expectedPersistableState },
+            expect.any(Function)
+        );
+    });
+
+    it('handles potential errors during debouncedStorageSet', () => {
+        const projectId = 'test_project_id';
+        mod._setProjectId(projectId);
+
+        // Simulate chrome.runtime.sendMessage throwing an error (e.g., context invalidated)
+        global.chrome.runtime.sendMessage.mockImplementationOnce(() => {
+            throw new Error('Extension context invalidated.');
+        });
+
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(() => mod.saveState()).not.toThrow();
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            "Sources+: Context invalidated. Please refresh the page.",
+            expect.any(Error)
+        );
+
+        consoleWarnSpy.mockRestore();
+        delete global.document;
+        delete global.queueMicrotask;
+        delete global.processMicrotasks;
+        delete global.window;
+        delete global.MutationObserver;
+        delete global.location;
         delete global.chrome;
     });
 
-    it('returns early if shadowRoot is null', () => {
-        global.document.createElement = jest.fn(() => ({
-            attachShadow: () => null
-        }));
-        mod._resetState();
-        mod.sourcesByKey.set('someKey', { key: 'someKey', title: 'Test' });
-
-        expect(() => mod.renderMoveToFolderModal('someKey')).not.toThrow();
-        if (mod._resetState) mod._resetState();
+    it('returns null if sourceKey is not found in sourcesByKey', () => {
+        expect(mod.findFreshCheckbox('invalidKey')).toBeNull();
     });
 
-    it('returns early if source is not found', () => {
-        mockShadowRoot.getElementById.mockReturnValue(null);
-        mod.sourcesByKey.clear();
+    it('populates freshRowCache and finds the correct checkbox', () => {
+        const sourceTitle = 'Test Document';
+        mod.sourcesByKey.set('source1', { key: 'source1', title: sourceTitle });
 
-        mod.renderMoveToFolderModal('nonexistentKey');
+        const mockCheckbox = { type: 'checkbox' };
+        const mockTitleEl = { textContent: `  ${sourceTitle}  ` };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(sel)) return mockCheckbox;
+                return null;
+            })
+        };
 
-        expect(mockShadowRoot.appendChild).not.toHaveBeenCalled();
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        const result = mod.findFreshCheckbox('source1');
+
+        expect(result).toBe(mockCheckbox);
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+        expect(mod._getFreshRowCache().get(sourceTitle)).toBe(mockRow);
+        expect(global.queueMicrotask).toHaveBeenCalled();
     });
 
-    it('renders empty state when no folders exist', () => {
-        mod.sourcesByKey.set('source1', { key: 'source1', title: 'Test Source' });
-        mod.state.groups = [];
+    it('returns null if no fresh row is found matching the title', () => {
+        mod.sourcesByKey.set('source2', { key: 'source2', title: 'Looking For This' });
 
-        mod.renderMoveToFolderModal('source1');
+        const mockTitleEl = { textContent: 'Completely Different Title' };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null;
+            })
+        };
 
-        expect(mockShadowRoot.appendChild).toHaveBeenCalled();
-        const appendedElements = mockShadowRoot.appendChild.mock.calls.map(call => call[0]);
-        const modalEl = appendedElements.find(el => el.className === 'sp-folder-modal');
-        expect(modalEl).toBeDefined();
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
 
-        const contentEl = modalEl.appendChild.mock.calls.find(call => call[0].className === 'sp-folder-modal-content')[0];
-        const emptyStateEl = contentEl.appendChild.mock.calls.find(call => call[0].className === 'sp-folder-empty');
-        expect(emptyStateEl).toBeDefined();
+        const result = mod.findFreshCheckbox('source2');
+
+        expect(result).toBeNull();
     });
 
-    it('renders folder options when folders exist', () => {
-        mod.sourcesByKey.set('source1', { key: 'source1', title: 'Test Source' });
-        mod.state.groups = ['group1'];
-        mod.groupsById.set('group1', { id: 'group1', title: 'Test Folder', children: [] });
+    it('clears freshRowCache after microtasks execute', () => {
+        const sourceTitle = 'Temp Title';
+        mod.sourcesByKey.set('source3', { key: 'source3', title: sourceTitle });
 
-        mod.renderMoveToFolderModal('source1');
+        const mockTitleEl = { textContent: sourceTitle };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null; // Don't even need a checkbox to test cache clearing
+            })
+        };
 
-        expect(mockShadowRoot.appendChild).toHaveBeenCalled();
-        const appendedElements = mockShadowRoot.appendChild.mock.calls.map(call => call[0]);
-        const modalEl = appendedElements.find(el => el.className === 'sp-folder-modal');
-        expect(modalEl).toBeDefined();
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
 
-        const contentEl = modalEl.appendChild.mock.calls.find(call => call[0].className === 'sp-folder-modal-content')[0];
-        const folderOptionEl = contentEl.appendChild.mock.calls.find(call => call[0].className === 'sp-folder-option');
-        expect(folderOptionEl).toBeDefined();
+        // First call populates cache and queues microtask
+        mod.findFreshCheckbox('source3');
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+
+        // Simulate microtask execution
+        global.processMicrotasks();
+
+        // Cache should be cleared
+        expect(mod._getFreshRowCache()).toBeNull();
     });
 });
