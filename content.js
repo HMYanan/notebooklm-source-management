@@ -43,6 +43,9 @@
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
     // --- Helper Functions ---
+    function findElement(selectors, parent = document) { for (const sel of selectors) { const el = parent.querySelector(sel); if (el) return el; } return null; }
+    function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
+    function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
 
     function el(tag, attributes = {}, children = []) {
         const element = document.createElement(tag);
