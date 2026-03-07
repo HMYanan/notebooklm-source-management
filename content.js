@@ -4,7 +4,7 @@
     // --- Selectors & Dependencies ---
     const DEPS = {
         panel: ['[data-testid="source-panel"]', '.source-panel'], // Fallbacks inside arrays
-        scroll: ['[data-testid="scroll-area"]', '.scroll-area-desktop', '.sources-list-container'],
+        scroll: ['.scroll-area'],
         row: ['[data-testid="source-item"]', '.single-source-container'],
         title: ['[data-testid="source-title"]', '.source-title'],
         checkbox: ['input[type="checkbox"]', '.select-checkbox input[type="checkbox"]'],
@@ -12,12 +12,10 @@
         icon: ['mat-icon[class*="-icon-color"]', 'mat-icon']
     };
     // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
-    const SOURCE_PANEL_SELECTOR = DEPS.panel[0];
     const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
     const SOURCE_ROW_SELECTOR = DEPS.row[0];
     const SOURCE_TITLE_SELECTOR = DEPS.title[0];
     const SOURCE_CHECKBOX_SELECTOR = DEPS.checkbox[0];
-    const SOURCE_MORE_BUTTON_SELECTOR = DEPS.moreBtn[0];
     const SOURCE_ICON_SELECTOR = DEPS.icon[0];
 
     // --- State Management ---
@@ -43,6 +41,9 @@
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
     // --- Helper Functions ---
+
+    function el(tag, attributes = {}, children = []) {
+        const element = document.createElement(tag);
         for (const [key, value] of Object.entries(attributes)) {
             if (key === 'className' && value) {
                 element.className = value;
@@ -118,6 +119,7 @@
             });
         });
     }
+
     function getProjectId() {
         const pathSegments = window.location.pathname.split('/');
         const notebookIndex = pathSegments.indexOf('notebook');
@@ -126,6 +128,7 @@
         }
         return null;
     }
+
     function generateSourceKey(title, index) {
         let hash = 0;
         for (let i = 0; i < title.length; i++) {
@@ -139,6 +142,7 @@
         }
         return baseKey;
     }
+
     function showToast(message) {
         let toast = shadowRoot.querySelector('.sp-toast');
         if (!toast) {
@@ -152,13 +156,22 @@
             toast.classList.remove('show');
         }, 3000);
     }
+
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
         if (existingError) return;
-        const banner = el('div', { id: 'sp-error-banner', style: 'position: fixed; top: 0; left: 0; right: 0; background: #ea4335; color: white; padding: 12px; text-align: center; z-index: 999999; font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);' }, [
+        const banner = el('div', {
+            id: 'sp-error-banner',
+            style: 'position: fixed; top: 0; left: 0; right: 0; background: #ea4335; ' +
+                   'color: white; padding: 12px; text-align: center; z-index: 999999; ' +
+                   'font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'
+        }, [
             el('strong', {}, ['Error: ']),
             message + ' ',
-            el('button', { id: 'sp-dismiss-error', style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;' }, ['Dismiss'])
+            el('button', {
+                id: 'sp-dismiss-error',
+                style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;'
+            }, ['Dismiss'])
         ]);
         document.body.prepend(banner);
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
@@ -608,7 +621,11 @@
                 ]),
                 el('div', { className: 'menu-container' }, [
                     // Only show standard options buttons when not in delete mode AND not loading
-                    !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-move-to-folder-button', dataset: { sourceKey: source.key }, title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder" }, [
+                    !state.isDeleteMode && !isLoading ? el('button', {
+                        className: 'sp-move-to-folder-button',
+                        dataset: { sourceKey: source.key },
+                        title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder"
+                    }, [
                         el('span', { className: 'google-symbols' }, ['drive_file_move'])
                     ]) : '',
                     !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-more-button', dataset: { sourceKey: source.key } }, [
@@ -663,10 +680,16 @@
                 style: `padding-left: ${level * 20}px`
             }, [
                 el('div', { className: 'group-header', draggable: !state.isDeleteMode ? 'true' : 'false', dataset: { dragType: 'group', groupId: group.id } }, [
-                    el('button', { className: 'sp-caret' + (group.collapsed ? ' collapsed' : ''), title: group.collapsed ? chrome.i18n.getMessage("ui_expand") : chrome.i18n.getMessage("ui_collapse") }, [
+                    el('button', {
+                        className: 'sp-caret' + (group.collapsed ? ' collapsed' : ''),
+                        title: group.collapsed ? chrome.i18n.getMessage("ui_expand") : chrome.i18n.getMessage("ui_collapse")
+                    }, [
                         el('span', { className: 'google-symbols' }, ['arrow_drop_down'])
                     ]),
-                    !state.isDeleteMode ? el('label', { className: 'sp-toggle-switch', title: group.enabled ? chrome.i18n.getMessage("ui_disable_group") : chrome.i18n.getMessage("ui_enable_group") }, [
+                    !state.isDeleteMode ? el('label', {
+                        className: 'sp-toggle-switch',
+                        title: group.enabled ? chrome.i18n.getMessage("ui_disable_group") : chrome.i18n.getMessage("ui_enable_group")
+                    }, [
                         el('input', { type: 'checkbox', className: 'sp-group-toggle-checkbox', dataset: { groupId: group.id }, checked: group.enabled }),
                         el('span', { className: 'sp-toggle-slider' })
                     ]) : '',
@@ -733,7 +756,14 @@
     // --- Action & Event Handlers ---
     function handleAddNewGroup(parentGroupId = null) {
         // Inject the one-time isNewlyCreated flag for the entry animation
-        const newGroup = { id: `group_${Date.now()}`, title: parentGroupId ? chrome.i18n.getMessage("ui_new_subgroup") : chrome.i18n.getMessage("ui_new_group"), children: [], enabled: true, collapsed: false, isNewlyCreated: true };
+        const newGroup = {
+            id: `group_${Date.now()}`,
+            title: parentGroupId ? chrome.i18n.getMessage("ui_new_subgroup") : chrome.i18n.getMessage("ui_new_group"),
+            children: [],
+            enabled: true,
+            collapsed: false,
+            isNewlyCreated: true
+        };
         groupsById.set(newGroup.id, newGroup);
         if (parentGroupId) {
             const parent = groupsById.get(parentGroupId);
@@ -813,12 +843,14 @@
             state.ungrouped = state.ungrouped.filter(k => k !== key);
         }
     }
+
     function removeGroupFromTree(id) {
         state.groups = state.groups.filter(gid => gid !== id);
         groupsById.forEach(g => {
             g.children = g.children.filter(c => c.id !== id);
         });
     }
+
     function isDescendant(possibleChild, possibleParent) {
         if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
         let found = false;
@@ -1070,7 +1102,9 @@
             }
         }
         const editButton = target.closest('.sp-edit-button');
-        if (editButton) { triggerRename(groupContainer); }
+        if (editButton) {
+            triggerRename(groupContainer);
+        }
 
         // --- Added: Delete Group ---
         const deleteButton = target.closest('.sp-delete-button');
@@ -1164,6 +1198,7 @@
             }
         }
     }
+
     function triggerRename(groupContainer) {
         const groupId = groupContainer.dataset.groupId;
         const group = groupsById.get(groupId);
@@ -1201,6 +1236,7 @@
         input.addEventListener('blur', handleSave);
         input.addEventListener('keydown', handleKey);
     }
+
     function handleDragStart(e) {
         const sourceTarget = e.target.closest('.source-item');
         const groupTarget = e.target.closest('.group-header');
@@ -1220,6 +1256,7 @@
             }
         }
     }
+
     function handleDragOver(e) {
         e.preventDefault();
         const dropTarget = e.target.closest('.group-container, .source-item');
@@ -1306,7 +1343,7 @@
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) state.groups.splice(insertIndex, 0, draggedGroupId);
                 else state.groups.push(draggedGroupId);
-            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj)) {
+            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj, groupsById)) {
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) targetGroup.children.splice(insertIndex, 0, { type: 'group', id: draggedGroupId });
                 else targetGroup.children.push({ type: 'group', id: draggedGroupId });
@@ -1317,6 +1354,7 @@
         render();
         saveState();
     }
+
     function handleDragEnd(e) {
         const draggedItem = shadowRoot.querySelector('.dragging');
         if (draggedItem) {
@@ -1402,7 +1440,9 @@
                     needsReSync = true; break;
                 }
             }
-            if (needsReSync) { debouncedScanAndSync(); }
+            if (needsReSync) {
+                debouncedScanAndSync();
+            }
         } catch (e) {
             console.error("Sources+: Failed handling mutations.", e);
         }
@@ -1456,7 +1496,9 @@
                 font-family: 'Google Symbols';
                 font-style: normal;
                 font-weight: 400;
-                src: url(https://fonts.gstatic.com/s/googlesymbols/v342/HhzMU5Ak9u-oMExPeInvcuEmPosC9zyteYEFU68cPrjdKM1XLPTxlGmzczpgWvF1d8Yp7AudBnt3CPar1JFWjoLAUv3G-tSNljixIIGUsC62cYrKiAw.woff2) format('woff2');
+                src: url(
+                    https://fonts.gstatic.com/s/googlesymbols/v342/HhzMU5Ak9u-oMExPeInvcuEmPosC9zyteYEFU68cPrjdKM1XLPTxlGmzczpgWvF1d8Yp7AudBnt3CPar1JFWjoLAUv3G-tSNljixIIGUsC62cYrKiAw.woff2
+                ) format('woff2');
             }
             .google-symbols {
                 font-family: 'Google Symbols';
@@ -1780,17 +1822,31 @@
             }
 
             @keyframes check-draw-organic {
-                0%   { width: 0;     height: 0;    opacity: 0; }
-                10%  { width: 0;     height: 0;    opacity: 1; }
+                0% {
+                    width: 0;
+                    height: 0;
+                    opacity: 0;
+                }
+                10% {
+                    width: 0;
+                    height: 0;
+                    opacity: 1;
+                }
                 40%  { width: 4.5px; height: 0;    opacity: 1; } /* Stroke 1: Draw short stem left-to-right */
                 100% { width: 4.5px; height: 10px; opacity: 1; } /* Stroke 2: Whip up the long stem bottom-to-top */
             }
 
             @keyframes checkbox-spring {
-                0% { transform: scale(1); }
-                30% { transform: scale(0.7); }
+                0% {
+                    transform: scale(1);
+                }
+                30% {
+                    transform: scale(0.7);
+                }
                 60% { transform: scale(1.15); } /* Overshoot */
-                100% { transform: scale(1); }
+                100% {
+                    transform: scale(1);
+                }
             }
             .source-item, .group-header {
                 display: flex;
@@ -1892,7 +1948,12 @@
                 flex-shrink: 0;
                 transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
-            .sp-more-button .google-symbols, .sp-move-to-folder-button .google-symbols, .sp-add-subgroup-button .google-symbols, .sp-isolate-button .google-symbols, .sp-edit-button .google-symbols, .sp-delete-button .google-symbols {
+            .sp-more-button .google-symbols,
+            .sp-move-to-folder-button .google-symbols,
+            .sp-add-subgroup-button .google-symbols,
+            .sp-isolate-button .google-symbols,
+            .sp-edit-button .google-symbols,
+            .sp-delete-button .google-symbols {
                 font-size: 16px;
             }
             .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
@@ -1923,11 +1984,9 @@
             }
             .icon-color {
                 color: var(--sp-accent);
-            } .youtube-icon-color {
-     color: var(--sp-accent-danger);
- } .pdf-icon-color {
-     color: var(--sp-accent-danger);
- }
+                } .youtube-icon-color { color: var(--sp-accent-danger);
+                } .pdf-icon-color { color: var(--sp-accent-danger);
+            }
             .group-container {
                 display: flex;
                 flex-direction: column;
@@ -1970,10 +2029,17 @@
                 border-radius: 50%;
                 animation: spin 1s linear infinite;
             }
-            @keyframes spin { 100% { transform: rotate(360deg); } }
+            @keyframes spin {
+                100% { transform: rotate(360deg);
+                };
+            }
             @keyframes pulse-text {
-                0%, 100% { opacity: 0.8; }
-                50% { opacity: 0.4; }
+                0%, 100% {
+                    opacity: 0.8;
+                }
+                50% {
+                    opacity: 0.4;
+                }
             }
             .group-children { 
                 padding-left: 8px; 
@@ -1998,18 +2064,76 @@
                 transform-origin: top center;
             }
             @keyframes sp-folder-pop {
-                0% { opacity: 0; transform: translateY(-10px) translateX(-5px) scale(0.95); }
-                100% { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
+                0% {
+                    opacity: 0;
+                    transform: translateY(-10px) translateX(-5px) scale(0.95);
+                }
+                100% {
+                    opacity: 1;
+                    transform: translateY(0) translateX(0) scale(1);
+                }
             }
             
             /* --- Move to Folder Modal & Overlay --- */
             @keyframes sp-modal-enter {
-                0% { opacity: 0; transform: translate(-50%, -46%) scale(0.95); }
-                100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                0% {
+                    opacity: 0;
+                    transform: translate(-50%, -46%) scale(0.95);
+                }
+                100% {
+                    opacity: 1;
+                    transform: translate(-50%, -50%) scale(1);
+                }
             }
             @keyframes sp-modal-leave {
-                0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-                100% { opacity: 0; transform: translate(-50%, -54%) scale(0.95); }
+                0% {
+                    opacity: 1;
+                    transform: translate(-50%, -50%) scale(1);
+                }
+                100% {
+                    opacity: 0;
+                    transform: translate(-50%, -54%) scale(0.95);
+                }
+            }
+            .sp-overlay-backdrop {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.2);
+                z-index: 10000;
+                opacity: 0;
+                transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                pointer-events: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(4px);
+            }
+            .sp-overlay-backdrop.visible {
+                opacity: 1;
+                pointer-events: auto;
+            }
+            .sp-folder-modal {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                width: 320px;
+                max-height: 80vh;
+                transform: translate(-50%, -50%);
+                background: rgba(255, 255, 255, 0.85);
+                backdrop-filter: blur(24px);
+                -webkit-backdrop-filter: blur(24px);
+                border: 1px solid rgba(0, 0, 0, 0.05);
+                border-radius: 16px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+                z-index: 10001;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                opacity: 0;
+                pointer-events: none;
             }
             .sp-overlay-backdrop {
                 position: fixed;
@@ -2054,11 +2178,16 @@
             
             /* Adjust for dark mode specifically */
             @media (prefers-color-scheme: dark) {
-                .sp-folder-modal { background: rgba(30, 30, 32, 0.85); border-color: rgba(255,255,255,0.1); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4); }
+                .sp-folder-modal {
+                    background: rgba(30, 30, 32, 0.85);
+                    border-color: rgba(255,255,255,0.1);
+                    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+                }
                 .sp-overlay-backdrop {
                     background: rgba(0, 0, 0, 0.6);
                 }
-                .sp-folder-modal-header, .sp-folder-modal-footer {
+                .sp-folder-modal-header,
+                .sp-folder-modal-footer {
                     border-color: rgba(255,255,255,0.05);
                 }
             }
@@ -2160,7 +2289,9 @@
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
-            .source-item.dragging, .group-header.dragging {
+
+            .source-item.dragging,
+            .group-header.dragging {
                 opacity: 0.95;
                 background-color: var(--sp-bg-button);
                 transform: scale(1.03) translateY(-2px);
@@ -2170,20 +2301,24 @@
                 cursor: grabbing;
                 transition: none;
             }
+
             .group-container.drag-into > .group-header {
                 background-color: var(--sp-drag-into-bg);
                 border-radius: 12px;
             }
+
             .drag-over-top {
                 border-top: 2px solid var(--sp-accent);
                 border-top-left-radius: 0;
                 border-top-right-radius: 0;
             }
+
             .drag-over-bottom {
                 border-bottom: 2px solid var(--sp-accent);
                 border-bottom-left-radius: 0;
                 border-bottom-right-radius: 0;
             }
+
             .sp-toast {
                 visibility: hidden;
                 min-width: 200px;
@@ -2205,12 +2340,14 @@
                 backdrop-filter: blur(10px);
                 box-shadow: var(--sp-shadow-toast);
             }
+
             .sp-toast.show {
                 visibility: visible;
                 opacity: 1;
                 transform: translateX(-50%) translateY(0) scale(1);
                 filter: blur(0);
             }
+
             .badge {
                 font-size: 11px;
                 color: var(--sp-text-badge);
@@ -2222,6 +2359,7 @@
                 padding: 2px 6px;
                 border-radius: 12px;
             }
+
             .sp-toggle-switch {
                 position: relative;
                 display: inline-block;
@@ -2230,11 +2368,13 @@
                 margin: 0 8px 0 2px;
                 flex-shrink: 0;
             }
+
             .sp-toggle-switch .sp-group-toggle-checkbox {
                 opacity: 0;
                 width: 0;
                 height: 0;
             }
+
             .sp-toggle-slider {
                 position: absolute;
                 cursor: pointer;
@@ -2247,6 +2387,7 @@
                 border-radius: 18px;
                 box-shadow: inset 0 0 0 1px var(--sp-border-light);
             }
+
             .sp-toggle-slider:before {
                 position: absolute;
                 content: "";
@@ -2259,10 +2400,12 @@
                 border-radius: 50%;
                 box-shadow: var(--sp-shadow-switch-thumb);
             }
+
             .sp-group-toggle-checkbox:checked + .sp-toggle-slider {
                 background-color: var(--sp-accent-success);
                 box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
             }
+
             .sp-group-toggle-checkbox:checked + .sp-toggle-slider:before {
                 transform: translateX(14px);
             }
@@ -2511,5 +2654,14 @@
         }
     });
     routeObserver.observe(document.body, { subtree: true, childList: true });
+
+    // Expose internals for testing
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            areAllAncestorsEnabled,
+            parentMap,
+            groupsById
+        };
+    }
 
 })();
