@@ -12,7 +12,6 @@
         icon: ['mat-icon[class*="-icon-color"]', 'mat-icon']
     };
     // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
-    const SOURCE_PANEL_SELECTOR = DEPS.panel[0];
     const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
     const SOURCE_ROW_SELECTOR = DEPS.row[0];
     const SOURCE_TITLE_SELECTOR = DEPS.title[0];
@@ -43,9 +42,6 @@
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
     // --- Helper Functions ---
-    function findElement(selectors, parent = document) { for (const sel of selectors) { const el = parent.querySelector(sel); if (el) return el; } return null; }
-    function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
-    function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
 
     function el(tag, attributes = {}, children = []) {
         const element = document.createElement(tag);
@@ -57,6 +53,15 @@
                     element.dataset[dKey] = dVal;
                 }
             } else if (value !== false && value != null) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey.startsWith('on')) {
+                    console.warn(`Sources+: Blocked insecure attribute key: ${key}`);
+                    continue;
+                }
+                if (['href', 'src', 'action', 'formaction', 'srcdoc'].includes(lowerKey) && String(value).toLowerCase().replace(/[\s\x00-\x1F]/g, '').startsWith('javascript:')) {
+                    console.warn(`Sources+: Blocked insecure attribute value for ${key}`);
+                    continue;
+                }
                 element.setAttribute(key, value === true ? '' : value);
             }
         }
@@ -115,9 +120,44 @@
             });
         });
     }
-    function getProjectId() { const pathSegments = window.location.pathname.split('/'); const notebookIndex = pathSegments.indexOf('notebook'); if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) { return pathSegments[notebookIndex + 1]; } return null; }
-    function generateSourceKey(title, index) { let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
-    function showToast(message) { let toast = shadowRoot.querySelector('.sp-toast'); if (!toast) { toast = document.createElement('div'); toast.className = 'sp-toast'; shadowRoot.appendChild(toast); } toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
+
+    function getProjectId() {
+        const pathSegments = window.location.pathname.split('/');
+        const notebookIndex = pathSegments.indexOf('notebook');
+        if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) {
+            return pathSegments[notebookIndex + 1];
+        }
+        return null;
+    }
+
+    function generateSourceKey(title, index) {
+        let hash = 0;
+        for (let i = 0; i < title.length; i++) {
+            const char = title.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0;
+        }
+        const baseKey = `source_${hash}`;
+        if (sourcesByKey.has(baseKey)) {
+            return `${baseKey}_${index}`;
+        }
+        return baseKey;
+    }
+
+    function showToast(message) {
+        let toast = shadowRoot.querySelector('.sp-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'sp-toast';
+            shadowRoot.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
         if (existingError) return;
@@ -130,19 +170,39 @@
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
     }
 
+    let freshRowCache = null;
+
     function findFreshCheckbox(sourceKey) {
         // Find the fresh row element from the DOM using the source title
         const sourceData = sourcesByKey.get(sourceKey);
         if (!sourceData) return null;
 
-        const sourceElements = queryAllElements(DEPS.row);
-        for (const el of sourceElements) {
-            const titleEl = findElement(DEPS.title, el);
-            if (titleEl && titleEl.textContent.trim() === sourceData.title) {
-                // Return the checkbox from that row
-                return findElement(DEPS.checkbox, el);
+        if (!freshRowCache) {
+            freshRowCache = new Map();
+            const sourceElements = queryAllElements(DEPS.row);
+            for (const el of sourceElements) {
+                const titleEl = findElement(DEPS.title, el);
+                if (titleEl) {
+                    const titleText = titleEl.textContent.trim();
+                    // only store the first matching element for a title (preserves original logic)
+                    if (!freshRowCache.has(titleText)) {
+                        freshRowCache.set(titleText, el);
+                    }
+                }
             }
+
+            // Invalidate the cache after the current macro/micro task batch
+            // so it stays fresh on subsequent user actions
+            queueMicrotask(() => {
+                freshRowCache = null;
+            });
         }
+
+        const freshRow = freshRowCache.get(sourceData.title);
+        if (freshRow) {
+            return findElement(DEPS.checkbox, freshRow);
+        }
+
         return null;
     }
 
@@ -516,7 +576,7 @@
             for (const child of group.children) {
                 if (child.type === 'source') {
                     const source = sourcesByKey.get(child.key);
-                    if (source && source.title && source.title.toLowerCase().includes(filterQuery)) return true;
+                    if (source && source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)) return true;
                 } else if (child.type === 'group') {
                     const childGroup = groupsById.get(child.id);
                     if (childGroup && hasMatchingDescendant(childGroup)) return true;
@@ -526,7 +586,7 @@
         };
 
         const renderSourceItem = (source) => {
-            if (!source || (filterQuery && (!source.title || !source.title.toLowerCase().includes(filterQuery)))) return null;
+            if (!source || (filterQuery && (!source.lowercaseTitle || !source.lowercaseTitle.includes(filterQuery)))) return null;
             const isGated = !areAllAncestorsEnabled(source.key);
             const isFailed = source.isDisabled && !source.isLoading;
             const isLoading = source.isLoading;
@@ -644,7 +704,7 @@
 
         const matchingUngrouped = state.ungrouped.filter(key => {
             const source = sourcesByKey.get(key);
-            return source && (!filterQuery || (source.title && source.title.toLowerCase().includes(filterQuery)));
+            return source && (!filterQuery || (source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)));
         });
 
         if (matchingUngrouped.length > 0) {
@@ -747,20 +807,41 @@
         // Use setTimeout instead of requestAnimationFrame to add a slight delay
         setTimeout(processClickQueue, 20);
     }
-    function findParentGroupOfSource(key) { for (const group of groupsById.values()) { if (group.children.some(c => c.type === 'source' && c.key === key)) return group; } return null; }
-    function removeSourceFromTree(key) { state.ungrouped = state.ungrouped.filter(k => k !== key); groupsById.forEach(g => { g.children = g.children.filter(c => c.type === 'group' || c.key !== key); }); }
-    function removeGroupFromTree(id) {
-        const parentId = parentMap.get(id);
-        if (parentId) {
-            const parent = groupsById.get(parentId);
-            if (parent) {
-                parent.children = parent.children.filter(c => c.id !== id);
-            }
+    function findParentGroupOfSource(key) {
+        const parentId = parentMap.get(key);
+        return parentId ? (groupsById.get(parentId) || null) : null;
+    }
+    function removeSourceFromTree(key) {
+        const parentGroup = findParentGroupOfSource(key);
+        if (parentGroup) {
+            parentGroup.children = parentGroup.children.filter(c => c.type === 'group' || c.key !== key);
         } else {
-            state.groups = state.groups.filter(gid => gid !== id);
+            state.ungrouped = state.ungrouped.filter(k => k !== key);
         }
     }
-    function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
+
+    function removeGroupFromTree(id) {
+        state.groups = state.groups.filter(gid => gid !== id);
+        groupsById.forEach(g => {
+            g.children = g.children.filter(c => c.id !== id);
+        });
+    }
+
+    function isDescendant(possibleChild, possibleParent) {
+        if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
+        let found = false;
+        const visit = (g) => {
+            if (!g || found) return;
+            g.children.forEach(c => {
+                if (c.type === 'group') {
+                    if (c.id === possibleChild.id) found = true;
+                    visit(groupsById.get(c.id));
+                }
+            });
+        };
+        visit(possibleParent);
+        return found;
+    }
 
     function handleInteraction(event) {
         const target = event.target;
@@ -1091,8 +1172,65 @@
             }
         }
     }
-    function triggerRename(groupContainer) { const groupId = groupContainer.dataset.groupId; const group = groupsById.get(groupId); if (!group) return; const titleSpan = groupContainer.querySelector('.group-title'); const originalTitle = group.title; const input = document.createElement('input'); input.type = 'text'; input.value = originalTitle; titleSpan.textContent = '📁 '; titleSpan.appendChild(input); input.focus(); input.select(); const cleanup = () => { input.removeEventListener('blur', handleSave); input.removeEventListener('keydown', handleKey); render(); }; const handleSave = () => { const newTitle = input.value.trim(); if (newTitle) group.title = newTitle; cleanup(); saveState(); }; const handleKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSave(); } else if (e.key === 'Escape') { e.preventDefault(); group.title = originalTitle; cleanup(); } }; input.addEventListener('blur', handleSave); input.addEventListener('keydown', handleKey); }
-    function handleDragStart(e) { const sourceTarget = e.target.closest('.source-item'); const groupTarget = e.target.closest('.group-header'); if (sourceTarget) { const key = sourceTarget.dataset.sourceKey; if (key) { e.dataTransfer.setData('application/source-key', key); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => sourceTarget.classList.add('dragging'), 0); } } else if (groupTarget) { const key = groupTarget.dataset.groupId; if (key) { e.dataTransfer.setData('application/group-id', key); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => groupTarget.classList.add('dragging'), 0); } } }
+
+    function triggerRename(groupContainer) {
+        const groupId = groupContainer.dataset.groupId;
+        const group = groupsById.get(groupId);
+        if (!group) return;
+        const titleSpan = groupContainer.querySelector('.group-title');
+        const originalTitle = group.title;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = originalTitle;
+        titleSpan.textContent = '📁 ';
+        titleSpan.appendChild(input);
+        input.focus();
+        input.select();
+        const cleanup = () => {
+            input.removeEventListener('blur', handleSave);
+            input.removeEventListener('keydown', handleKey);
+            render();
+        };
+        const handleSave = () => {
+            const newTitle = input.value.trim();
+            if (newTitle) group.title = newTitle;
+            cleanup();
+            saveState();
+        };
+        const handleKey = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSave();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                group.title = originalTitle;
+                cleanup();
+            }
+        };
+        input.addEventListener('blur', handleSave);
+        input.addEventListener('keydown', handleKey);
+    }
+
+    function handleDragStart(e) {
+        const sourceTarget = e.target.closest('.source-item');
+        const groupTarget = e.target.closest('.group-header');
+        if (sourceTarget) {
+            const key = sourceTarget.dataset.sourceKey;
+            if (key) {
+                e.dataTransfer.setData('application/source-key', key);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => sourceTarget.classList.add('dragging'), 0);
+            }
+        } else if (groupTarget) {
+            const key = groupTarget.dataset.groupId;
+            if (key) {
+                e.dataTransfer.setData('application/group-id', key);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => groupTarget.classList.add('dragging'), 0);
+            }
+        }
+    }
+
     function handleDragOver(e) {
         e.preventDefault();
         const dropTarget = e.target.closest('.group-container, .source-item');
@@ -1179,7 +1317,7 @@
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) state.groups.splice(insertIndex, 0, draggedGroupId);
                 else state.groups.push(draggedGroupId);
-            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj)) {
+            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj, groupsById)) {
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) targetGroup.children.splice(insertIndex, 0, { type: 'group', id: draggedGroupId });
                 else targetGroup.children.push({ type: 'group', id: draggedGroupId });
@@ -1190,7 +1328,13 @@
         render();
         saveState();
     }
-    function handleDragEnd(e) { const draggedItem = shadowRoot.querySelector('.dragging'); if (draggedItem) { draggedItem.classList.remove('dragging'); } }
+
+    function handleDragEnd(e) {
+        const draggedItem = shadowRoot.querySelector('.dragging');
+        if (draggedItem) {
+            draggedItem.classList.remove('dragging');
+        }
+    }
 
     // --- Initialization & Observation ---
     function scanAndSyncSources(loadedEnabledMap, isFirstLoad = false) {
@@ -1237,7 +1381,8 @@
                 enabled = oldSourcesMap.has(key) ? oldSourcesMap.get(key) : (checkbox?.checked || false);
             }
 
-            sourcesByKey.set(key, { key, title, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
+            const lowercaseTitle = title ? title.toLowerCase() : '';
+            sourcesByKey.set(key, { key, title, lowercaseTitle, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
             keyByElement.set(el, key);
             if (!allKnownKeys.has(key)) {
                 state.ungrouped.push(key);
@@ -2013,5 +2158,14 @@
         }
     });
     routeObserver.observe(document.body, { subtree: true, childList: true });
+
+    // Expose internals for testing
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            areAllAncestorsEnabled,
+            parentMap,
+            groupsById
+        };
+    }
 
 })();
