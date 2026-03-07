@@ -43,9 +43,6 @@
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
     // --- Helper Functions ---
-    function findElement(selectors, parent = document) { for (const sel of selectors) { const el = parent.querySelector(sel); if (el) return el; } return null; }
-    function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
-    function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
 
     function el(tag, attributes = {}, children = []) {
         const element = document.createElement(tag);
@@ -124,9 +121,44 @@
             });
         });
     }
-    function getProjectId() { const pathSegments = window.location.pathname.split('/'); const notebookIndex = pathSegments.indexOf('notebook'); if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) { return pathSegments[notebookIndex + 1]; } return null; }
-    function generateSourceKey(title, index) { let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
-    function showToast(message) { let toast = shadowRoot.querySelector('.sp-toast'); if (!toast) { toast = document.createElement('div'); toast.className = 'sp-toast'; shadowRoot.appendChild(toast); } toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
+
+    function getProjectId() {
+        const pathSegments = window.location.pathname.split('/');
+        const notebookIndex = pathSegments.indexOf('notebook');
+        if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) {
+            return pathSegments[notebookIndex + 1];
+        }
+        return null;
+    }
+
+    function generateSourceKey(title, index) {
+        let hash = 0;
+        for (let i = 0; i < title.length; i++) {
+            const char = title.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0;
+        }
+        const baseKey = `source_${hash}`;
+        if (sourcesByKey.has(baseKey)) {
+            return `${baseKey}_${index}`;
+        }
+        return baseKey;
+    }
+
+    function showToast(message) {
+        let toast = shadowRoot.querySelector('.sp-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'sp-toast';
+            shadowRoot.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
         if (existingError) return;
@@ -788,8 +820,29 @@
             state.ungrouped = state.ungrouped.filter(k => k !== key);
         }
     }
-    function removeGroupFromTree(id) { state.groups = state.groups.filter(gid => gid !== id); groupsById.forEach(g => { g.children = g.children.filter(c => c.id !== id); }); }
-    function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
+
+    function removeGroupFromTree(id) {
+        state.groups = state.groups.filter(gid => gid !== id);
+        groupsById.forEach(g => {
+            g.children = g.children.filter(c => c.id !== id);
+        });
+    }
+
+    function isDescendant(possibleChild, possibleParent) {
+        if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
+        let found = false;
+        const visit = (g) => {
+            if (!g || found) return;
+            g.children.forEach(c => {
+                if (c.type === 'group') {
+                    if (c.id === possibleChild.id) found = true;
+                    visit(groupsById.get(c.id));
+                }
+            });
+        };
+        visit(possibleParent);
+        return found;
+    }
 
     function handleInteraction(event) {
         const target = event.target;
@@ -1120,8 +1173,65 @@
             }
         }
     }
-    function triggerRename(groupContainer) { const groupId = groupContainer.dataset.groupId; const group = groupsById.get(groupId); if (!group) return; const titleSpan = groupContainer.querySelector('.group-title'); const originalTitle = group.title; const input = document.createElement('input'); input.type = 'text'; input.value = originalTitle; titleSpan.textContent = '📁 '; titleSpan.appendChild(input); input.focus(); input.select(); const cleanup = () => { input.removeEventListener('blur', handleSave); input.removeEventListener('keydown', handleKey); render(); }; const handleSave = () => { const newTitle = input.value.trim(); if (newTitle) group.title = newTitle; cleanup(); saveState(); }; const handleKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSave(); } else if (e.key === 'Escape') { e.preventDefault(); group.title = originalTitle; cleanup(); } }; input.addEventListener('blur', handleSave); input.addEventListener('keydown', handleKey); }
-    function handleDragStart(e) { const sourceTarget = e.target.closest('.source-item'); const groupTarget = e.target.closest('.group-header'); if (sourceTarget) { const key = sourceTarget.dataset.sourceKey; if (key) { e.dataTransfer.setData('application/source-key', key); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => sourceTarget.classList.add('dragging'), 0); } } else if (groupTarget) { const key = groupTarget.dataset.groupId; if (key) { e.dataTransfer.setData('application/group-id', key); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => groupTarget.classList.add('dragging'), 0); } } }
+
+    function triggerRename(groupContainer) {
+        const groupId = groupContainer.dataset.groupId;
+        const group = groupsById.get(groupId);
+        if (!group) return;
+        const titleSpan = groupContainer.querySelector('.group-title');
+        const originalTitle = group.title;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = originalTitle;
+        titleSpan.textContent = '📁 ';
+        titleSpan.appendChild(input);
+        input.focus();
+        input.select();
+        const cleanup = () => {
+            input.removeEventListener('blur', handleSave);
+            input.removeEventListener('keydown', handleKey);
+            render();
+        };
+        const handleSave = () => {
+            const newTitle = input.value.trim();
+            if (newTitle) group.title = newTitle;
+            cleanup();
+            saveState();
+        };
+        const handleKey = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSave();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                group.title = originalTitle;
+                cleanup();
+            }
+        };
+        input.addEventListener('blur', handleSave);
+        input.addEventListener('keydown', handleKey);
+    }
+
+    function handleDragStart(e) {
+        const sourceTarget = e.target.closest('.source-item');
+        const groupTarget = e.target.closest('.group-header');
+        if (sourceTarget) {
+            const key = sourceTarget.dataset.sourceKey;
+            if (key) {
+                e.dataTransfer.setData('application/source-key', key);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => sourceTarget.classList.add('dragging'), 0);
+            }
+        } else if (groupTarget) {
+            const key = groupTarget.dataset.groupId;
+            if (key) {
+                e.dataTransfer.setData('application/group-id', key);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => groupTarget.classList.add('dragging'), 0);
+            }
+        }
+    }
+
     function handleDragOver(e) {
         e.preventDefault();
         const dropTarget = e.target.closest('.group-container, .source-item');
@@ -1219,7 +1329,13 @@
         render();
         saveState();
     }
-    function handleDragEnd(e) { const draggedItem = shadowRoot.querySelector('.dragging'); if (draggedItem) { draggedItem.classList.remove('dragging'); } }
+
+    function handleDragEnd(e) {
+        const draggedItem = shadowRoot.querySelector('.dragging');
+        if (draggedItem) {
+            draggedItem.classList.remove('dragging');
+        }
+    }
 
     // --- Initialization & Observation ---
     function scanAndSyncSources(loadedEnabledMap, isFirstLoad = false) {
