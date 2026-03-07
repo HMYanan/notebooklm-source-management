@@ -66,10 +66,52 @@
         }
         return element;
     }
-    function debounce(func, wait) { let timeout; return function executedFunction(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); }; }
-    function findElement(selectors, parent = document) { for (const sel of selectors) { const el = parent.querySelector(sel); if (el) return el; } return null; }
-    function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
-    function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    function findElement(selectors, parent = document) {
+        for (const sel of selectors) {
+            const el = parent.querySelector(sel);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    function queryAllElements(selectors, parent = document) {
+        for (const sel of selectors) {
+            const els = parent.querySelectorAll(sel);
+            if (els.length > 0) return els;
+        }
+        return [];
+    }
+
+    function waitForElement(selectors) {
+        return new Promise(resolve => {
+            const check = () => findElement(selectors);
+            const el = check();
+            if (el) return resolve(el);
+            const observer = new MutationObserver(() => {
+                const found = check();
+                if (found) {
+                    resolve(found);
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        });
+    }
     function getProjectId() { const pathSegments = window.location.pathname.split('/'); const notebookIndex = pathSegments.indexOf('notebook'); if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) { return pathSegments[notebookIndex + 1]; } return null; }
     function generateSourceKey(title, index) { let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
     function showToast(message) { let toast = shadowRoot.querySelector('.sp-toast'); if (!toast) { toast = document.createElement('div'); toast.className = 'sp-toast'; shadowRoot.appendChild(toast); } toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
@@ -1342,10 +1384,38 @@
                 }
             }
 
-            .sp-container { display: flex; flex-direction: column; max-height: calc(100vh - 220px); min-height: 150px; font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; color: var(--sp-text-primary); position: relative; }
-            .sp-resizer { height: 8px; width: 100%; cursor: ns-resize; position: absolute; bottom: -4px; left: 0; z-index: 10; display: flex; justify-content: center; align-items: center; }
-            .sp-resizer::after { content: ''; width: 30px; height: 3px; background-color: var(--sp-border-medium); border-radius: 3px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
-            .sp-resizer:hover::after { background-color: var(--sp-accent); }
+            .sp-container {
+                display: flex;
+                flex-direction: column;
+                max-height: calc(100vh - 220px);
+                min-height: 150px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+                color: var(--sp-text-primary);
+                position: relative;
+            }
+            .sp-resizer {
+                height: 8px;
+                width: 100%;
+                cursor: ns-resize;
+                position: absolute;
+                bottom: -4px;
+                left: 0;
+                z-index: 10;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            .sp-resizer::after {
+                content: '';
+                width: 30px;
+                height: 3px;
+                background-color: var(--sp-border-medium);
+                border-radius: 3px;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-resizer:hover::after {
+                background-color: var(--sp-accent);
+            }
             
             /* Sticky Header with Glassmorphism */
             .sp-controls { 
@@ -1368,25 +1438,119 @@
                 pointer-events: none;
             }
             
-            #sources-list { overflow-y: auto; overflow-x: hidden; flex-grow: 1; min-height: 0; padding-right: 4px; padding-top: 4px; }
-            #sources-list::-webkit-scrollbar { width: 6px; }
-            #sources-list::-webkit-scrollbar-track { background: transparent; }
-            #sources-list::-webkit-scrollbar-thumb { background-color: var(--sp-border-medium); border-radius: 12px; }
-            .sp-search-container { display: flex; align-items: center; flex-grow: 1; position: relative; }
-            #sp-search { width: 100%; box-sizing: border-box; padding: 6px 32px 6px 12px; border: 1px solid var(--sp-border-light); border-radius: 12px; font-size: 13px; background-color: var(--sp-bg-secondary); color: var(--sp-text-primary); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); transform-origin: center; }
-            #sp-search:focus { background-color: var(--sp-bg-button); border-color: var(--sp-accent); box-shadow: 0 0 0 3px rgba(0,122,255,0.15); transform: scale(1.01); }
-            #sp-search::placeholder { color: var(--sp-text-secondary); }
+            #sources-list {
+                overflow-y: auto;
+                overflow-x: hidden;
+                flex-grow: 1;
+                min-height: 0;
+                padding-right: 4px;
+                padding-top: 4px;
+            }
+            #sources-list::-webkit-scrollbar {
+                width: 6px;
+            }
+            #sources-list::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            #sources-list::-webkit-scrollbar-thumb {
+                background-color: var(--sp-border-medium);
+                border-radius: 12px;
+            }
+            .sp-search-container {
+                display: flex;
+                align-items: center;
+                flex-grow: 1;
+                position: relative;
+            }
+            #sp-search {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 6px 32px 6px 12px;
+                border: 1px solid var(--sp-border-light);
+                border-radius: 12px;
+                font-size: 13px;
+                background-color: var(--sp-bg-secondary);
+                color: var(--sp-text-primary);
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                outline: none;
+                box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+                transform-origin: center;
+            }
+            #sp-search:focus {
+                background-color: var(--sp-bg-button);
+                border-color: var(--sp-accent);
+                box-shadow: 0 0 0 3px rgba(0,122,255,0.15);
+                transform: scale(1.01);
+            }
+            #sp-search::placeholder {
+                color: var(--sp-text-secondary);
+            }
             
-            .sp-icon-button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 4px; display: flex; align-items: center; justify-content: center; color: var(--sp-text-secondary); cursor: pointer; border-radius: 4px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
-            .sp-icon-button:hover { background-color: var(--sp-icon-button-hover); color: var(--sp-text-primary); transform: translateY(-50%) scale(1.08); }
-            .sp-icon-button:active { transform: translateY(-50%) scale(0.85); }
-            .sp-icon-button .google-symbols { font-size: 18px; }
+            .sp-icon-button {
+                position: absolute;
+                right: 4px;
+                top: 50%;
+                transform: translateY(-50%);
+                background: none;
+                border: none;
+                padding: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--sp-text-secondary);
+                cursor: pointer;
+                border-radius: 4px;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-icon-button:hover {
+                background-color: var(--sp-icon-button-hover);
+                color: var(--sp-text-primary);
+                transform: translateY(-50%) scale(1.08);
+            }
+            .sp-icon-button:active {
+                transform: translateY(-50%) scale(0.85);
+            }
+            .sp-icon-button .google-symbols {
+                font-size: 18px;
+            }
             
-            .sp-button { position: relative; overflow: hidden; border: 1px solid var(--sp-border-light); color: var(--sp-text-primary); background-color: var(--sp-bg-button); font-size: 13px; font-weight: 500; border-radius: 12px; padding: 6px 12px; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); white-space: nowrap; box-shadow: var(--sp-shadow-button); }
-            .sp-button:hover { background-color: var(--sp-bg-button-hover); border-color: var(--sp-border-medium); }
-            .sp-button:active { background-color: var(--sp-bg-button-active); transform: scale(0.95); }
-            .sp-button::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(128,128,128,0.15), transparent); transform: skewX(-20deg); transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
-            .sp-button:hover::after { left: 150%; }
+            .sp-button {
+                position: relative;
+                overflow: hidden;
+                border: 1px solid var(--sp-border-light);
+                color: var(--sp-text-primary);
+                background-color: var(--sp-bg-button);
+                font-size: 13px;
+                font-weight: 500;
+                border-radius: 12px;
+                padding: 6px 12px;
+                cursor: pointer;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                white-space: nowrap;
+                box-shadow: var(--sp-shadow-button);
+            }
+            .sp-button:hover {
+                background-color: var(--sp-bg-button-hover);
+                border-color: var(--sp-border-medium);
+            }
+            .sp-button:active {
+                background-color: var(--sp-bg-button-active);
+                transform: scale(0.95);
+            }
+            .sp-button::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 50%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(128,128,128,0.15), transparent);
+                transform: skewX(-20deg);
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-button:hover::after {
+                left: 150%;
+            }
             
             /* --- Ultra Premium Custom Animated Checkboxes --- */
             .sp-checkbox { 
