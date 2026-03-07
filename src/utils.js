@@ -1,0 +1,51 @@
+/**
+ * Helper function to create DOM elements with attributes and children.
+ * @param {string} tag - The HTML tag name.
+ * @param {Object} attributes - Object containing attributes to set on the element.
+ * @param {Array} children - Array of children (strings or Nodes) to append to the element.
+ * @returns {HTMLElement} The created element.
+ */
+function el(tag, attributes = {}, children = []) {
+    const element = document.createElement(tag);
+    for (const [key, value] of Object.entries(attributes)) {
+        if (key === 'className' && value) {
+            element.className = value;
+        } else if (key === 'dataset' && value) {
+            for (const [dKey, dVal] of Object.entries(value)) {
+                element.dataset[dKey] = dVal;
+            }
+        } else if (value !== false && value != null) {
+            element.setAttribute(key, value === true ? '' : value);
+        }
+    }
+    for (const child of children) {
+        if (typeof child === 'string') {
+            element.appendChild(document.createTextNode(child));
+        } else if (child instanceof Node) {
+            element.appendChild(child);
+        }
+    }
+    return element;
+}
+
+/**
+ * Debounce a function.
+ * @param {Function} func - The function to debounce.
+ * @param {number} wait - The wait time in milliseconds.
+ * @returns {Function} The debounced function.
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { el, debounce };
+}

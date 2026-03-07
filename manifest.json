@@ -23,6 +23,7 @@
         "https://notebooklm.google.com/notebook/*"
       ],
       "js": [
+        "src/utils.js",
         "content.js"
       ],
       "css": [

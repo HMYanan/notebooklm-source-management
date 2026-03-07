@@ -43,30 +43,6 @@
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
     // --- Helper Functions ---
-
-    function el(tag, attributes = {}, children = []) {
-        const element = document.createElement(tag);
-        for (const [key, value] of Object.entries(attributes)) {
-            if (key === 'className' && value) {
-                element.className = value;
-            } else if (key === 'dataset' && value) {
-                for (const [dKey, dVal] of Object.entries(value)) {
-                    element.dataset[dKey] = dVal;
-                }
-            } else if (value !== false && value != null) {
-                element.setAttribute(key, value === true ? '' : value);
-            }
-        }
-        for (const child of children) {
-            if (typeof child === 'string') {
-                element.appendChild(document.createTextNode(child));
-            } else if (child instanceof Node) {
-                element.appendChild(child);
-            }
-        }
-        return element;
-    }
-    function debounce(func, wait) { let timeout; return function executedFunction(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); }; }
     function findElement(selectors, parent = document) { for (const sel of selectors) { const el = parent.querySelector(sel); if (el) return el; } return null; }
     function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
     function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
