@@ -749,7 +749,17 @@
     }
     function findParentGroupOfSource(key) { for (const group of groupsById.values()) { if (group.children.some(c => c.type === 'source' && c.key === key)) return group; } return null; }
     function removeSourceFromTree(key) { state.ungrouped = state.ungrouped.filter(k => k !== key); groupsById.forEach(g => { g.children = g.children.filter(c => c.type === 'group' || c.key !== key); }); }
-    function removeGroupFromTree(id) { state.groups = state.groups.filter(gid => gid !== id); groupsById.forEach(g => { g.children = g.children.filter(c => c.id !== id); }); }
+    function removeGroupFromTree(id) {
+        const parentId = parentMap.get(id);
+        if (parentId) {
+            const parent = groupsById.get(parentId);
+            if (parent) {
+                parent.children = parent.children.filter(c => c.id !== id);
+            }
+        } else {
+            state.groups = state.groups.filter(gid => gid !== id);
+        }
+    }
     function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
 
     function handleInteraction(event) {
