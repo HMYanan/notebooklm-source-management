@@ -1670,29 +1670,135 @@
                 60% { transform: scale(1.15); } /* Overshoot */
                 100% { transform: scale(1); }
             }
-            .source-item, .group-header { display: flex; align-items: center; padding: 6px 8px; border-radius: 12px; margin: 2px 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); color: var(--sp-text-primary); position: relative; z-index: 1; transform-origin: left center; cursor: pointer; }
-            .source-item { padding-left: 12px; border: 1px solid transparent; }
-            .group-header { font-weight: 600; background-color: var(--sp-bg-primary); }
-            .source-item:hover, .group-header:hover { background-color: var(--sp-bg-hover); z-index: 2; transform: translateX(3px); }
-            .source-item:active, .group-header:active { transform: translateX(3px) scale(0.98); }
-            .sp-caret { background: none; border: none; cursor: pointer; padding: 0 2px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); transform: rotate(0deg); color: var(--sp-text-secondary); display: flex; align-items: center; justify-content: center; }
-            .sp-caret .google-symbols { font-size: 20px; }
-            .sp-caret.collapsed { transform: rotate(-90deg); }
-            .icon-container { flex-shrink: 0; margin-right: 8px; display: flex; align-items: center; color: var(--sp-text-secondary); }
-            .icon-container .google-symbols { font-size: 16px; }
-            .menu-container { flex-shrink: 0; margin-right: 8px; opacity: 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); display: flex; align-items: center; }
-            .source-item:hover .menu-container { opacity: 1; }
-            .title-container, .group-title { flex-grow: 1; min-width: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-size: 13px; color: var(--sp-text-primary); letter-spacing: -0.01em; }
-            .checkbox-container { flex-shrink: 0; margin-left: auto; padding-left: 8px; display: flex; align-items: center; }
-            .sp-more-button, .sp-move-to-folder-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { background: none; border: none; cursor: pointer; border-radius: 12px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--sp-text-secondary); flex-shrink: 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
-            .sp-more-button .google-symbols, .sp-move-to-folder-button .google-symbols, .sp-add-subgroup-button .google-symbols, .sp-isolate-button .google-symbols, .sp-edit-button .google-symbols, .sp-delete-button .google-symbols { font-size: 16px; }
-            .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { display: none; margin-left: 2px; }
-            .sp-more-button, .sp-move-to-folder-button { margin-left: 2px; }
-            .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button { display: flex; }
-            .group-title + .badge { margin-left: auto; }
-            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover { background-color: var(--sp-icon-button-hover); color: var(--sp-text-primary); transform: scale(1.1); }
-            .sp-delete-button:hover { background-color: rgba(255, 59, 48, 0.1); color: var(--sp-accent-danger); transform: scale(1.1); }
-            .sp-more-button:active, .sp-move-to-folder-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active { transform: scale(0.85); }
+            .source-item, .group-header {
+                display: flex;
+                align-items: center;
+                padding: 6px 8px;
+                border-radius: 12px;
+                margin: 2px 0;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                color: var(--sp-text-primary);
+                position: relative;
+                z-index: 1;
+                transform-origin: left center;
+                cursor: pointer;
+            }
+            .source-item {
+                padding-left: 12px;
+                border: 1px solid transparent;
+            }
+            .group-header {
+                font-weight: 600;
+                background-color: var(--sp-bg-primary);
+            }
+            .source-item:hover, .group-header:hover {
+                background-color: var(--sp-bg-hover);
+                z-index: 2;
+                transform: translateX(3px);
+            }
+            .source-item:active, .group-header:active {
+                transform: translateX(3px) scale(0.98);
+            }
+            .sp-caret {
+                background: none;
+                border: none;
+                cursor: pointer;
+                padding: 0 2px;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                transform: rotate(0deg);
+                color: var(--sp-text-secondary);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .sp-caret .google-symbols {
+                font-size: 20px;
+            }
+            .sp-caret.collapsed {
+                transform: rotate(-90deg);
+            }
+            .icon-container {
+                flex-shrink: 0;
+                margin-right: 8px;
+                display: flex;
+                align-items: center;
+                color: var(--sp-text-secondary);
+            }
+            .icon-container .google-symbols {
+                font-size: 16px;
+            }
+            .menu-container {
+                flex-shrink: 0;
+                margin-right: 8px;
+                opacity: 0;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                display: flex;
+                align-items: center;
+            }
+            .source-item:hover .menu-container {
+                opacity: 1;
+            }
+            .title-container, .group-title {
+                flex-grow: 1;
+                min-width: 0;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                overflow: hidden;
+                font-size: 13px;
+                color: var(--sp-text-primary);
+                letter-spacing: -0.01em;
+            }
+            .checkbox-container {
+                flex-shrink: 0;
+                margin-left: auto;
+                padding-left: 8px;
+                display: flex;
+                align-items: center;
+            }
+            .sp-more-button, .sp-move-to-folder-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
+                background: none;
+                border: none;
+                cursor: pointer;
+                border-radius: 12px;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0;
+                color: var(--sp-text-secondary);
+                flex-shrink: 0;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-more-button .google-symbols, .sp-move-to-folder-button .google-symbols, .sp-add-subgroup-button .google-symbols, .sp-isolate-button .google-symbols, .sp-edit-button .google-symbols, .sp-delete-button .google-symbols {
+                font-size: 16px;
+            }
+            .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
+                display: none;
+                margin-left: 2px;
+            }
+            .sp-more-button, .sp-move-to-folder-button {
+                margin-left: 2px;
+            }
+            .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button {
+                display: flex;
+            }
+            .group-title + .badge {
+                margin-left: auto;
+            }
+            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover {
+                background-color: var(--sp-icon-button-hover);
+                color: var(--sp-text-primary);
+                transform: scale(1.1);
+            }
+            .sp-delete-button:hover {
+                background-color: rgba(255, 59, 48, 0.1);
+                color: var(--sp-accent-danger);
+                transform: scale(1.1);
+            }
+            .sp-more-button:active, .sp-move-to-folder-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active {
+                transform: scale(0.85);
+            }
             .icon-color { color: var(--sp-accent); } .youtube-icon-color { color: var(--sp-accent-danger); } .pdf-icon-color { color: var(--sp-accent-danger); }
             .group-container { display: flex; flex-direction: column; overflow: hidden; margin-bottom: 2px; }
             .source-item.gated, .group-container.gated > .group-children { opacity: 0.5; filter: grayscale(50%); }
