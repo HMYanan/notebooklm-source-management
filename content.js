@@ -2668,6 +2668,8 @@
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _getFreshRowCache: () => freshRowCache,
+            _setProjectId: (val) => { projectId = val; },
+            _setCustomHeight: (val) => { customHeight = val; },
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
