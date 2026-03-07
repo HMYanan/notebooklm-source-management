@@ -536,7 +536,7 @@
             for (const child of group.children) {
                 if (child.type === 'source') {
                     const source = sourcesByKey.get(child.key);
-                    if (source && source.title && source.title.toLowerCase().includes(filterQuery)) return true;
+                    if (source && source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)) return true;
                 } else if (child.type === 'group') {
                     const childGroup = groupsById.get(child.id);
                     if (childGroup && hasMatchingDescendant(childGroup)) return true;
@@ -546,7 +546,7 @@
         };
 
         const renderSourceItem = (source) => {
-            if (!source || (filterQuery && (!source.title || !source.title.toLowerCase().includes(filterQuery)))) return null;
+            if (!source || (filterQuery && (!source.lowercaseTitle || !source.lowercaseTitle.includes(filterQuery)))) return null;
             const isGated = !areAllAncestorsEnabled(source.key);
             const isFailed = source.isDisabled && !source.isLoading;
             const isLoading = source.isLoading;
@@ -664,7 +664,7 @@
 
         const matchingUngrouped = state.ungrouped.filter(key => {
             const source = sourcesByKey.get(key);
-            return source && (!filterQuery || (source.title && source.title.toLowerCase().includes(filterQuery)));
+            return source && (!filterQuery || (source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)));
         });
 
         if (matchingUngrouped.length > 0) {
@@ -1247,7 +1247,8 @@
                 enabled = oldSourcesMap.has(key) ? oldSourcesMap.get(key) : (checkbox?.checked || false);
             }
 
-            sourcesByKey.set(key, { key, title, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
+            const lowercaseTitle = title ? title.toLowerCase() : '';
+            sourcesByKey.set(key, { key, title, lowercaseTitle, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
             keyByElement.set(el, key);
             if (!allKnownKeys.has(key)) {
                 state.ungrouped.push(key);
