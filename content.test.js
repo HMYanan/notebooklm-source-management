@@ -154,6 +154,7 @@ describe('executeBatchDelete', () => {
         const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn(), querySelector: jest.fn() };
         const mockConfirmBtn = { textContent: 'Delete', className: 'primary', click: jest.fn(), querySelector: jest.fn(), getAttribute: jest.fn() };
         const mockDialog = {
+            textContent: 'Delete this?',
             querySelectorAll: jest.fn(sel => {
                 if (sel === 'button') return [mockConfirmBtn];
                 return [];
@@ -271,6 +272,7 @@ describe('executeBatchDelete', () => {
 
         const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn() };
         const mockDialog = {
+            textContent: 'Delete this?',
             querySelectorAll: jest.fn(() => [])
         };
 
@@ -289,7 +291,6 @@ describe('executeBatchDelete', () => {
 });
 
 describe('saveState', () => {
-describe('findFreshCheckbox', () => {
     let mod;
 
     beforeEach(() => {
@@ -360,14 +361,14 @@ describe('findFreshCheckbox', () => {
     });
 
     it('returns early if projectId is missing', () => {
-        mod._setProjectId(null);
+        mod.projectId = null;
         mod.saveState();
         expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
     });
 
     it('correctly extracts persistableState and calls storage set', () => {
         const projectId = 'test_project_id';
-        mod._setProjectId(projectId);
+        mod.projectId = projectId;
 
         // Populate state
         mod.state.groups = ['group1', 'group2'];
@@ -409,7 +410,7 @@ describe('findFreshCheckbox', () => {
 
     it('handles potential errors during debouncedStorageSet', () => {
         const projectId = 'test_project_id';
-        mod._setProjectId(projectId);
+        mod.projectId = projectId;
 
         // Simulate chrome.runtime.sendMessage throwing an error (e.g., context invalidated)
         global.chrome.runtime.sendMessage.mockImplementationOnce(() => {
@@ -432,6 +433,58 @@ describe('findFreshCheckbox', () => {
         delete global.MutationObserver;
         delete global.location;
         delete global.chrome;
+    });
+});
+
+describe('findFreshCheckbox', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        global.document = {
+            querySelectorAll: jest.fn(() => []),
+            createElement: jest.fn(() => ({
+                appendChild: jest.fn(),
+                setAttribute: jest.fn(),
+                addEventListener: jest.fn(),
+                dataset: {},
+                classList: { add: jest.fn(), remove: jest.fn() },
+                attachShadow: jest.fn(() => ({ appendChild: jest.fn() }))
+            })),
+            createTextNode: jest.fn(),
+            getElementById: jest.fn(() => ({
+                addEventListener: jest.fn()
+            })),
+            body: { prepend: jest.fn() }
+        };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+
+        global.queueMicrotasks = [];
+        global.queueMicrotask = jest.fn((cb) => {
+            global.queueMicrotasks.push(cb);
+        });
+        global.processMicrotasks = () => {
+            const tasks = [...global.queueMicrotasks];
+            global.queueMicrotasks = [];
+            tasks.forEach(cb => cb());
+        };
+
+        global.window = { location: { pathname: '/notebook/123' } };
+
+        mod = require('./content.js');
+        mod._resetState();
+    });
+
+    afterEach(() => {
+        delete global.document;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.queueMicrotask;
+        delete global.processMicrotasks;
+        delete global.queueMicrotasks;
+        delete global.window;
     });
 
     it('returns null if sourceKey is not found in sourcesByKey', () => {
