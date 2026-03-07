@@ -161,10 +161,18 @@
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
         if (existingError) return;
-        const banner = el('div', { id: 'sp-error-banner', style: 'position: fixed; top: 0; left: 0; right: 0; background: #ea4335; color: white; padding: 12px; text-align: center; z-index: 999999; font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);' }, [
+        const banner = el('div', {
+            id: 'sp-error-banner',
+            style: 'position: fixed; top: 0; left: 0; right: 0; background: #ea4335; ' +
+                   'color: white; padding: 12px; text-align: center; z-index: 999999; ' +
+                   'font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'
+        }, [
             el('strong', {}, ['Error: ']),
             message + ' ',
-            el('button', { id: 'sp-dismiss-error', style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;' }, ['Dismiss'])
+            el('button', {
+                id: 'sp-dismiss-error',
+                style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;'
+            }, ['Dismiss'])
         ]);
         document.body.prepend(banner);
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
@@ -614,7 +622,11 @@
                 ]),
                 el('div', { className: 'menu-container' }, [
                     // Only show standard options buttons when not in delete mode AND not loading
-                    !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-move-to-folder-button', dataset: { sourceKey: source.key }, title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder" }, [
+                    !state.isDeleteMode && !isLoading ? el('button', {
+                        className: 'sp-move-to-folder-button',
+                        dataset: { sourceKey: source.key },
+                        title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder"
+                    }, [
                         el('span', { className: 'google-symbols' }, ['drive_file_move'])
                     ]) : '',
                     !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-more-button', dataset: { sourceKey: source.key } }, [
@@ -669,10 +681,16 @@
                 style: `padding-left: ${level * 20}px`
             }, [
                 el('div', { className: 'group-header', draggable: !state.isDeleteMode ? 'true' : 'false', dataset: { dragType: 'group', groupId: group.id } }, [
-                    el('button', { className: 'sp-caret' + (group.collapsed ? ' collapsed' : ''), title: group.collapsed ? chrome.i18n.getMessage("ui_expand") : chrome.i18n.getMessage("ui_collapse") }, [
+                    el('button', {
+                        className: 'sp-caret' + (group.collapsed ? ' collapsed' : ''),
+                        title: group.collapsed ? chrome.i18n.getMessage("ui_expand") : chrome.i18n.getMessage("ui_collapse")
+                    }, [
                         el('span', { className: 'google-symbols' }, ['arrow_drop_down'])
                     ]),
-                    !state.isDeleteMode ? el('label', { className: 'sp-toggle-switch', title: group.enabled ? chrome.i18n.getMessage("ui_disable_group") : chrome.i18n.getMessage("ui_enable_group") }, [
+                    !state.isDeleteMode ? el('label', {
+                        className: 'sp-toggle-switch',
+                        title: group.enabled ? chrome.i18n.getMessage("ui_disable_group") : chrome.i18n.getMessage("ui_enable_group")
+                    }, [
                         el('input', { type: 'checkbox', className: 'sp-group-toggle-checkbox', dataset: { groupId: group.id }, checked: group.enabled }),
                         el('span', { className: 'sp-toggle-slider' })
                     ]) : '',
@@ -739,7 +757,14 @@
     // --- Action & Event Handlers ---
     function handleAddNewGroup(parentGroupId = null) {
         // Inject the one-time isNewlyCreated flag for the entry animation
-        const newGroup = { id: `group_${Date.now()}`, title: parentGroupId ? chrome.i18n.getMessage("ui_new_subgroup") : chrome.i18n.getMessage("ui_new_group"), children: [], enabled: true, collapsed: false, isNewlyCreated: true };
+        const newGroup = {
+            id: `group_${Date.now()}`,
+            title: parentGroupId ? chrome.i18n.getMessage("ui_new_subgroup") : chrome.i18n.getMessage("ui_new_group"),
+            children: [],
+            enabled: true,
+            collapsed: false,
+            isNewlyCreated: true
+        };
         groupsById.set(newGroup.id, newGroup);
         if (parentGroupId) {
             const parent = groupsById.get(parentGroupId);
@@ -1078,7 +1103,9 @@
             }
         }
         const editButton = target.closest('.sp-edit-button');
-        if (editButton) { triggerRename(groupContainer); }
+        if (editButton) {
+            triggerRename(groupContainer);
+        }
 
         // --- Added: Delete Group ---
         const deleteButton = target.closest('.sp-delete-button');
@@ -1414,7 +1441,9 @@
                     needsReSync = true; break;
                 }
             }
-            if (needsReSync) { debouncedScanAndSync(); }
+            if (needsReSync) {
+                debouncedScanAndSync();
+            }
         } catch (e) {
             console.error("Sources+: Failed handling mutations.", e);
         }
@@ -1464,8 +1493,29 @@
         const style = document.createElement('style');
         // MODIFIED: Added styles for the new toggle switch and removed tri-state checkbox styles.
         style.textContent = `
-            @font-face { font-family: 'Google Symbols'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/googlesymbols/v342/HhzMU5Ak9u-oMExPeInvcuEmPosC9zyteYEFU68cPrjdKM1XLPTxlGmzczpgWvF1d8Yp7AudBnt3CPar1JFWjoLAUv3G-tSNljixIIGUsC62cYrKiAw.woff2) format('woff2'); }
-            .google-symbols { font-family: 'Google Symbols'; font-weight: normal; font-style: normal; font-size: 18px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+            @font-face {
+                font-family: 'Google Symbols';
+                font-style: normal;
+                font-weight: 400;
+                src: url(
+                    https://fonts.gstatic.com/s/googlesymbols/v342/HhzMU5Ak9u-oMExPeInvcuEmPosC9zyteYEFU68cPrjdKM1XLPTxlGmzczpgWvF1d8Yp7AudBnt3CPar1JFWjoLAUv3G-tSNljixIIGUsC62cYrKiAw.woff2
+                ) format('woff2');
+            }
+            .google-symbols {
+                font-family: 'Google Symbols';
+                font-weight: normal;
+                font-style: normal;
+                font-size: 18px;
+                line-height: 1;
+                letter-spacing: normal;
+                text-transform: none;
+                display: inline-block;
+                white-space: nowrap;
+                word-wrap: normal;
+                direction: ltr;
+                -webkit-font-feature-settings: 'liga';
+                -webkit-font-smoothing: antialiased;
+            }
             
             /* -------- Light Mode (Default) -------- */
             :host {
@@ -1773,55 +1823,205 @@
             }
 
             @keyframes check-draw-organic {
-                0%   { width: 0;     height: 0;    opacity: 0; }
-                10%  { width: 0;     height: 0;    opacity: 1; }
+                0% {
+                    width: 0;
+                    height: 0;
+                    opacity: 0;
+                }
+                10% {
+                    width: 0;
+                    height: 0;
+                    opacity: 1;
+                }
                 40%  { width: 4.5px; height: 0;    opacity: 1; } /* Stroke 1: Draw short stem left-to-right */
                 100% { width: 4.5px; height: 10px; opacity: 1; } /* Stroke 2: Whip up the long stem bottom-to-top */
             }
 
             @keyframes checkbox-spring {
-                0% { transform: scale(1); }
-                30% { transform: scale(0.7); }
+                0% {
+                    transform: scale(1);
+                }
+                30% {
+                    transform: scale(0.7);
+                }
                 60% { transform: scale(1.15); } /* Overshoot */
-                100% { transform: scale(1); }
+                100% {
+                    transform: scale(1);
+                }
             }
-            .source-item, .group-header { display: flex; align-items: center; padding: 6px 8px; border-radius: 12px; margin: 2px 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); color: var(--sp-text-primary); position: relative; z-index: 1; transform-origin: left center; cursor: pointer; }
-            .source-item { padding-left: 12px; border: 1px solid transparent; }
-            .group-header { font-weight: 600; background-color: var(--sp-bg-primary); }
-            .source-item:hover, .group-header:hover { background-color: var(--sp-bg-hover); z-index: 2; transform: translateX(3px); }
-            .source-item:active, .group-header:active { transform: translateX(3px) scale(0.98); }
-            .sp-caret { background: none; border: none; cursor: pointer; padding: 0 2px; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); transform: rotate(0deg); color: var(--sp-text-secondary); display: flex; align-items: center; justify-content: center; }
-            .sp-caret .google-symbols { font-size: 20px; }
-            .sp-caret.collapsed { transform: rotate(-90deg); }
-            .icon-container { flex-shrink: 0; margin-right: 8px; display: flex; align-items: center; color: var(--sp-text-secondary); }
-            .icon-container .google-symbols { font-size: 16px; }
-            .menu-container { flex-shrink: 0; margin-right: 8px; opacity: 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); display: flex; align-items: center; }
-            .source-item:hover .menu-container { opacity: 1; }
-            .title-container, .group-title { flex-grow: 1; min-width: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-size: 13px; color: var(--sp-text-primary); letter-spacing: -0.01em; }
-            .checkbox-container { flex-shrink: 0; margin-left: auto; padding-left: 8px; display: flex; align-items: center; }
-            .sp-more-button, .sp-move-to-folder-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { background: none; border: none; cursor: pointer; border-radius: 12px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--sp-text-secondary); flex-shrink: 0; transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
-            .sp-more-button .google-symbols, .sp-move-to-folder-button .google-symbols, .sp-add-subgroup-button .google-symbols, .sp-isolate-button .google-symbols, .sp-edit-button .google-symbols, .sp-delete-button .google-symbols { font-size: 16px; }
-            .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button { display: none; margin-left: 2px; }
-            .sp-more-button, .sp-move-to-folder-button { margin-left: 2px; }
-            .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button { display: flex; }
-            .group-title + .badge { margin-left: auto; }
-            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover { background-color: var(--sp-icon-button-hover); color: var(--sp-text-primary); transform: scale(1.1); }
-            .sp-delete-button:hover { background-color: rgba(255, 59, 48, 0.1); color: var(--sp-accent-danger); transform: scale(1.1); }
-            .sp-more-button:active, .sp-move-to-folder-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active { transform: scale(0.85); }
-            .icon-color { color: var(--sp-accent); } .youtube-icon-color { color: var(--sp-accent-danger); } .pdf-icon-color { color: var(--sp-accent-danger); }
-            .group-container { display: flex; flex-direction: column; overflow: hidden; margin-bottom: 2px; }
-            .source-item.gated, .group-container.gated > .group-children { opacity: 0.5; filter: grayscale(50%); }
-            .failed-source { cursor: not-allowed; }
-            .failed-source .title-container, .failed-source .icon-container { color: var(--sp-accent-danger) !important; }
-            .failed-source .sp-checkbox { opacity: 0.5; cursor: not-allowed; border-color: var(--sp-accent-danger); }
+            .source-item, .group-header {
+                display: flex;
+                align-items: center;
+                padding: 6px 8px;
+                border-radius: 12px;
+                margin: 2px 0;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                color: var(--sp-text-primary);
+                position: relative;
+                z-index: 1;
+                transform-origin: left center;
+                cursor: pointer;
+            }
+            .source-item {
+                padding-left: 12px;
+                border: 1px solid transparent;
+            }
+            .group-header {
+                font-weight: 600;
+                background-color: var(--sp-bg-primary);
+            }
+            .source-item:hover, .group-header:hover {
+                background-color: var(--sp-bg-hover);
+                z-index: 2;
+                transform: translateX(3px);
+            }
+            .source-item:active, .group-header:active {
+                transform: translateX(3px) scale(0.98);
+            }
+            .sp-caret {
+                background: none;
+                border: none;
+                cursor: pointer;
+                padding: 0 2px;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                transform: rotate(0deg);
+                color: var(--sp-text-secondary);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .sp-caret .google-symbols {
+                font-size: 20px;
+            }
+            .sp-caret.collapsed {
+                transform: rotate(-90deg);
+            }
+            .icon-container {
+                flex-shrink: 0;
+                margin-right: 8px;
+                display: flex;
+                align-items: center;
+                color: var(--sp-text-secondary);
+            }
+            .icon-container .google-symbols {
+                font-size: 16px;
+            }
+            .menu-container {
+                flex-shrink: 0;
+                margin-right: 8px;
+                opacity: 0;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                display: flex;
+                align-items: center;
+            }
+            .source-item:hover .menu-container {
+                opacity: 1;
+            }
+            .title-container, .group-title {
+                flex-grow: 1;
+                min-width: 0;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                overflow: hidden;
+                font-size: 13px;
+                color: var(--sp-text-primary);
+                letter-spacing: -0.01em;
+            }
+            .checkbox-container {
+                flex-shrink: 0;
+                margin-left: auto;
+                padding-left: 8px;
+                display: flex;
+                align-items: center;
+            }
+            .sp-more-button, .sp-move-to-folder-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
+                background: none;
+                border: none;
+                cursor: pointer;
+                border-radius: 12px;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0;
+                color: var(--sp-text-secondary);
+                flex-shrink: 0;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-more-button .google-symbols,
+            .sp-move-to-folder-button .google-symbols,
+            .sp-add-subgroup-button .google-symbols,
+            .sp-isolate-button .google-symbols,
+            .sp-edit-button .google-symbols,
+            .sp-delete-button .google-symbols {
+                font-size: 16px;
+            }
+            .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
+                display: none;
+                margin-left: 2px;
+            }
+            .sp-more-button, .sp-move-to-folder-button {
+                margin-left: 2px;
+            }
+            .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button {
+                display: flex;
+            }
+            .group-title + .badge {
+                margin-left: auto;
+            }
+            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover {
+                background-color: var(--sp-icon-button-hover);
+                color: var(--sp-text-primary);
+                transform: scale(1.1);
+            }
+            .sp-delete-button:hover {
+                background-color: rgba(255, 59, 48, 0.1);
+                color: var(--sp-accent-danger);
+                transform: scale(1.1);
+            }
+            .sp-more-button:active, .sp-move-to-folder-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active {
+                transform: scale(0.85);
+            }
+            .icon-color {
+                color: var(--sp-accent);
+                } .youtube-icon-color { color: var(--sp-accent-danger);
+                } .pdf-icon-color { color: var(--sp-accent-danger);
+            }
+            .group-container {
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                margin-bottom: 2px;
+            }
+            .source-item.gated, .group-container.gated > .group-children {
+                opacity: 0.5;
+                filter: grayscale(50%);
+            }
+            .failed-source {
+                cursor: not-allowed;
+            }
+            .failed-source .title-container, .failed-source .icon-container {
+                color: var(--sp-accent-danger) !important;
+            }
+            .failed-source .sp-checkbox {
+                opacity: 0.5;
+                cursor: not-allowed;
+                border-color: var(--sp-accent-danger);
+            }
             
             /* Loading State Visuals */
-            .loading-source { cursor: wait; }
+            .loading-source {
+                cursor: wait;
+            }
             .loading-source .title-container { 
                 opacity: 0.6; 
                 animation: pulse-text 2s cubic-bezier(0.25, 1, 0.5, 1) infinite; 
             }
-            .loading-source .sp-checkbox { opacity: 0; pointer-events: none; }
+            .loading-source .sp-checkbox {
+                opacity: 0;
+                pointer-events: none;
+            }
             .sp-spinner {
                 width: 16px;
                 height: 16px;
@@ -1830,10 +2030,17 @@
                 border-radius: 50%;
                 animation: spin 1s linear infinite;
             }
-            @keyframes spin { 100% { transform: rotate(360deg); } }
+            @keyframes spin {
+                100% { transform: rotate(360deg);
+                };
+            }
             @keyframes pulse-text {
-                0%, 100% { opacity: 0.8; }
-                50% { opacity: 0.4; }
+                0%, 100% {
+                    opacity: 0.8;
+                }
+                50% {
+                    opacity: 0.4;
+                }
             }
             .group-children { 
                 padding-left: 8px; 
@@ -1858,18 +2065,76 @@
                 transform-origin: top center;
             }
             @keyframes sp-folder-pop {
-                0% { opacity: 0; transform: translateY(-10px) translateX(-5px) scale(0.95); }
-                100% { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
+                0% {
+                    opacity: 0;
+                    transform: translateY(-10px) translateX(-5px) scale(0.95);
+                }
+                100% {
+                    opacity: 1;
+                    transform: translateY(0) translateX(0) scale(1);
+                }
             }
             
             /* --- Move to Folder Modal & Overlay --- */
             @keyframes sp-modal-enter {
-                0% { opacity: 0; transform: translate(-50%, -46%) scale(0.95); }
-                100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                0% {
+                    opacity: 0;
+                    transform: translate(-50%, -46%) scale(0.95);
+                }
+                100% {
+                    opacity: 1;
+                    transform: translate(-50%, -50%) scale(1);
+                }
             }
             @keyframes sp-modal-leave {
-                0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-                100% { opacity: 0; transform: translate(-50%, -54%) scale(0.95); }
+                0% {
+                    opacity: 1;
+                    transform: translate(-50%, -50%) scale(1);
+                }
+                100% {
+                    opacity: 0;
+                    transform: translate(-50%, -54%) scale(0.95);
+                }
+            }
+            .sp-overlay-backdrop {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.2);
+                z-index: 10000;
+                opacity: 0;
+                transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                pointer-events: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(4px);
+            }
+            .sp-overlay-backdrop.visible {
+                opacity: 1;
+                pointer-events: auto;
+            }
+            .sp-folder-modal {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                width: 320px;
+                max-height: 80vh;
+                transform: translate(-50%, -50%);
+                background: rgba(255, 255, 255, 0.85);
+                backdrop-filter: blur(24px);
+                -webkit-backdrop-filter: blur(24px);
+                border: 1px solid rgba(0, 0, 0, 0.05);
+                border-radius: 16px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+                z-index: 10001;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                opacity: 0;
+                pointer-events: none;
             }
             .sp-overlay-backdrop {
                 position: fixed;
