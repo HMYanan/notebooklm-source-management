@@ -2044,4 +2044,13 @@
     });
     routeObserver.observe(document.body, { subtree: true, childList: true });
 
+    // Expose internals for testing
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            areAllAncestorsEnabled,
+            parentMap,
+            groupsById
+        };
+    }
+
 })();
