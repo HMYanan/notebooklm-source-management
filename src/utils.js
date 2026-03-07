@@ -55,6 +55,29 @@ function debounce(func, wait) {
     };
 }
 
+/**
+ * Checks if a group is a descendant of another group.
+ * @param {Object} possibleChild - The potential child group object.
+ * @param {Object} possibleParent - The potential parent group object.
+ * @param {Map} groupsById - A Map containing all groups keyed by their IDs.
+ * @returns {boolean} True if possibleChild is a descendant of possibleParent, false otherwise.
+ */
+function isDescendant(possibleChild, possibleParent, groupsById) {
+    if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
+    let found = false;
+    const visit = (g) => {
+        if (!g || found) return;
+        g.children.forEach(c => {
+            if (c.type === 'group') {
+                if (c.id === possibleChild.id) found = true;
+                visit(groupsById.get(c.id));
+            }
+        });
+    };
+    visit(possibleParent);
+    return found;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { el, debounce };
+    module.exports = { el, debounce, isDescendant };
 }

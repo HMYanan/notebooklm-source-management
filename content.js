@@ -12,7 +12,6 @@
         icon: ['mat-icon[class*="-icon-color"]', 'mat-icon']
     };
     // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
-    const SOURCE_PANEL_SELECTOR = DEPS.panel[0];
     const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
     const SOURCE_ROW_SELECTOR = DEPS.row[0];
     const SOURCE_TITLE_SELECTOR = DEPS.title[0];
@@ -43,9 +42,6 @@
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
     // --- Helper Functions ---
-    function findElement(selectors, parent = document) { for (const sel of selectors) { const el = parent.querySelector(sel); if (el) return el; } return null; }
-    function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
-    function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
 
     function el(tag, attributes = {}, children = []) {
         const element = document.createElement(tag);
@@ -124,9 +120,44 @@
             });
         });
     }
-    function getProjectId() { const pathSegments = window.location.pathname.split('/'); const notebookIndex = pathSegments.indexOf('notebook'); if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) { return pathSegments[notebookIndex + 1]; } return null; }
-    function generateSourceKey(title, index) { let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
-    function showToast(message) { let toast = shadowRoot.querySelector('.sp-toast'); if (!toast) { toast = document.createElement('div'); toast.className = 'sp-toast'; shadowRoot.appendChild(toast); } toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
+
+    function getProjectId() {
+        const pathSegments = window.location.pathname.split('/');
+        const notebookIndex = pathSegments.indexOf('notebook');
+        if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) {
+            return pathSegments[notebookIndex + 1];
+        }
+        return null;
+    }
+
+    function generateSourceKey(title, index) {
+        let hash = 0;
+        for (let i = 0; i < title.length; i++) {
+            const char = title.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0;
+        }
+        const baseKey = `source_${hash}`;
+        if (sourcesByKey.has(baseKey)) {
+            return `${baseKey}_${index}`;
+        }
+        return baseKey;
+    }
+
+    function showToast(message) {
+        let toast = shadowRoot.querySelector('.sp-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'sp-toast';
+            shadowRoot.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
         if (existingError) return;
@@ -788,8 +819,29 @@
             state.ungrouped = state.ungrouped.filter(k => k !== key);
         }
     }
-    function removeGroupFromTree(id) { state.groups = state.groups.filter(gid => gid !== id); groupsById.forEach(g => { g.children = g.children.filter(c => c.id !== id); }); }
-    function isDescendant(possibleChild, possibleParent) { if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true; let found = false; const visit = (g) => { if (!g || found) return; g.children.forEach(c => { if (c.type === 'group') { if (c.id === possibleChild.id) found = true; visit(groupsById.get(c.id)); } }); }; visit(possibleParent); return found; }
+
+    function removeGroupFromTree(id) {
+        state.groups = state.groups.filter(gid => gid !== id);
+        groupsById.forEach(g => {
+            g.children = g.children.filter(c => c.id !== id);
+        });
+    }
+
+    function isDescendant(possibleChild, possibleParent) {
+        if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
+        let found = false;
+        const visit = (g) => {
+            if (!g || found) return;
+            g.children.forEach(c => {
+                if (c.type === 'group') {
+                    if (c.id === possibleChild.id) found = true;
+                    visit(groupsById.get(c.id));
+                }
+            });
+        };
+        visit(possibleParent);
+        return found;
+    }
 
     function handleInteraction(event) {
         const target = event.target;
@@ -1120,6 +1172,7 @@
             }
         }
     }
+
     function triggerRename(groupContainer) {
         const groupId = groupContainer.dataset.groupId;
         const group = groupsById.get(groupId);
@@ -1177,6 +1230,7 @@
             }
         }
     }
+
     function handleDragOver(e) {
         e.preventDefault();
         const dropTarget = e.target.closest('.group-container, .source-item');
@@ -1263,7 +1317,7 @@
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) state.groups.splice(insertIndex, 0, draggedGroupId);
                 else state.groups.push(draggedGroupId);
-            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj)) {
+            } else if (draggedGroupId !== targetGroup.id && !isDescendant(targetGroup, draggedGroupObj, groupsById)) {
                 removeGroupFromTree(draggedGroupId);
                 if (insertIndex !== -1) targetGroup.children.splice(insertIndex, 0, { type: 'group', id: draggedGroupId });
                 else targetGroup.children.push({ type: 'group', id: draggedGroupId });
@@ -1274,7 +1328,13 @@
         render();
         saveState();
     }
-    function handleDragEnd(e) { const draggedItem = shadowRoot.querySelector('.dragging'); if (draggedItem) { draggedItem.classList.remove('dragging'); } }
+
+    function handleDragEnd(e) {
+        const draggedItem = shadowRoot.querySelector('.dragging');
+        if (draggedItem) {
+            draggedItem.classList.remove('dragging');
+        }
+    }
 
     // --- Initialization & Observation ---
     function scanAndSyncSources(loadedEnabledMap, isFirstLoad = false) {
@@ -2216,5 +2276,14 @@
         }
     });
     routeObserver.observe(document.body, { subtree: true, childList: true });
+
+    // Expose internals for testing
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            areAllAncestorsEnabled,
+            parentMap,
+            groupsById
+        };
+    }
 
 })();

@@ -67,7 +67,7 @@ global.document = {
     createTextNode: (text) => new TextNode(text)
 };
 
-const { el } = require('./src/utils');
+const { el, isDescendant } = require('./src/utils');
 
 describe('el function', () => {
     test('creates an element with tag name', () => {
@@ -151,5 +151,43 @@ describe('el function', () => {
         // It should allow normal URLs
         const safeElement = el('a', { href: 'https://example.com' });
         expect(safeElement.getAttribute('href')).toBe('https://example.com');
+    });
+});
+
+describe('isDescendant function', () => {
+    let groupsById;
+
+    beforeEach(() => {
+        groupsById = new Map();
+        groupsById.set('group1', { id: 'group1', children: [{ type: 'group', id: 'group2' }, { type: 'source', key: 'source1' }] });
+        groupsById.set('group2', { id: 'group2', children: [{ type: 'group', id: 'group3' }] });
+        groupsById.set('group3', { id: 'group3', children: [] });
+        groupsById.set('group4', { id: 'group4', children: [] }); // Disconnected/Sibling
+    });
+
+    test('returns true if possibleChild or possibleParent is null/undefined', () => {
+        expect(isDescendant(null, groupsById.get('group1'), groupsById)).toBe(true);
+        expect(isDescendant(groupsById.get('group1'), null, groupsById)).toBe(true);
+        expect(isDescendant(undefined, undefined, groupsById)).toBe(true);
+    });
+
+    test('returns true if child and parent are the same node', () => {
+        expect(isDescendant(groupsById.get('group1'), groupsById.get('group1'), groupsById)).toBe(true);
+    });
+
+    test('returns true for a direct child group', () => {
+        expect(isDescendant(groupsById.get('group2'), groupsById.get('group1'), groupsById)).toBe(true);
+    });
+
+    test('returns true for a deep descendant group', () => {
+        expect(isDescendant(groupsById.get('group3'), groupsById.get('group1'), groupsById)).toBe(true);
+    });
+
+    test('returns false for a non-descendant group (e.g. sibling/unrelated)', () => {
+        expect(isDescendant(groupsById.get('group4'), groupsById.get('group1'), groupsById)).toBe(false);
+    });
+
+    test('returns false if checking parent as descendant of child', () => {
+        expect(isDescendant(groupsById.get('group1'), groupsById.get('group2'), groupsById)).toBe(false);
     });
 });
