@@ -1120,8 +1120,69 @@
             }
         }
     }
-    function triggerRename(groupContainer) { const groupId = groupContainer.dataset.groupId; const group = groupsById.get(groupId); if (!group) return; const titleSpan = groupContainer.querySelector('.group-title'); const originalTitle = group.title; const input = document.createElement('input'); input.type = 'text'; input.value = originalTitle; titleSpan.textContent = '📁 '; titleSpan.appendChild(input); input.focus(); input.select(); const cleanup = () => { input.removeEventListener('blur', handleSave); input.removeEventListener('keydown', handleKey); render(); }; const handleSave = () => { const newTitle = input.value.trim(); if (newTitle) group.title = newTitle; cleanup(); saveState(); }; const handleKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSave(); } else if (e.key === 'Escape') { e.preventDefault(); group.title = originalTitle; cleanup(); } }; input.addEventListener('blur', handleSave); input.addEventListener('keydown', handleKey); }
-    function handleDragStart(e) { const sourceTarget = e.target.closest('.source-item'); const groupTarget = e.target.closest('.group-header'); if (sourceTarget) { const key = sourceTarget.dataset.sourceKey; if (key) { e.dataTransfer.setData('application/source-key', key); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => sourceTarget.classList.add('dragging'), 0); } } else if (groupTarget) { const key = groupTarget.dataset.groupId; if (key) { e.dataTransfer.setData('application/group-id', key); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => groupTarget.classList.add('dragging'), 0); } } }
+    function triggerRename(groupContainer) {
+        const groupId = groupContainer.dataset.groupId;
+        const group = groupsById.get(groupId);
+        if (!group) return;
+
+        const titleSpan = groupContainer.querySelector('.group-title');
+        const originalTitle = group.title;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = originalTitle;
+        titleSpan.textContent = '📁 ';
+        titleSpan.appendChild(input);
+        input.focus();
+        input.select();
+
+        const cleanup = () => {
+            input.removeEventListener('blur', handleSave);
+            input.removeEventListener('keydown', handleKey);
+            render();
+        };
+
+        const handleSave = () => {
+            const newTitle = input.value.trim();
+            if (newTitle) group.title = newTitle;
+            cleanup();
+            saveState();
+        };
+
+        const handleKey = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSave();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                group.title = originalTitle;
+                cleanup();
+            }
+        };
+
+        input.addEventListener('blur', handleSave);
+        input.addEventListener('keydown', handleKey);
+    }
+
+    function handleDragStart(e) {
+        const sourceTarget = e.target.closest('.source-item');
+        const groupTarget = e.target.closest('.group-header');
+
+        if (sourceTarget) {
+            const key = sourceTarget.dataset.sourceKey;
+            if (key) {
+                e.dataTransfer.setData('application/source-key', key);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => sourceTarget.classList.add('dragging'), 0);
+            }
+        } else if (groupTarget) {
+            const key = groupTarget.dataset.groupId;
+            if (key) {
+                e.dataTransfer.setData('application/group-id', key);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => groupTarget.classList.add('dragging'), 0);
+            }
+        }
+    }
     function handleDragOver(e) {
         e.preventDefault();
         const dropTarget = e.target.closest('.group-container, .source-item');
