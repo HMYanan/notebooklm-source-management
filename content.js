@@ -71,7 +71,7 @@
     function queryAllElements(selectors, parent = document) { for (const sel of selectors) { const els = parent.querySelectorAll(sel); if (els.length > 0) return els; } return []; }
     function waitForElement(selectors) { return new Promise(resolve => { const check = () => findElement(selectors); const el = check(); if (el) return resolve(el); const observer = new MutationObserver(() => { const found = check(); if (found) { resolve(found); observer.disconnect(); } }); observer.observe(document.body, { childList: true, subtree: true }); }); }
     function getProjectId() { const pathSegments = window.location.pathname.split('/'); const notebookIndex = pathSegments.indexOf('notebook'); if (notebookIndex > -1 && notebookIndex + 1 < pathSegments.length) { return pathSegments[notebookIndex + 1]; } return null; }
-    function generateSourceKey(element, index) { const checkbox = findElement(DEPS.checkbox, element); const label = checkbox ? checkbox.getAttribute('aria-label') : ''; const title = label || findElement(DEPS.title, element)?.textContent || ''; let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
+    function generateSourceKey(title, index) { let hash = 0; for (let i = 0; i < title.length; i++) { const char = title.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash |= 0; } const baseKey = `source_${hash}`; if (sourcesByKey.has(baseKey)) { return `${baseKey}_${index}`; } return baseKey; }
     function showToast(message) { let toast = shadowRoot.querySelector('.sp-toast'); if (!toast) { toast = document.createElement('div'); toast.className = 'sp-toast'; shadowRoot.appendChild(toast); } toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
     function showCrashBanner(message) {
         const existingError = document.getElementById('sp-error-banner');
@@ -1159,12 +1159,14 @@
 
         Array.from(sourceElements).forEach((el, index) => {
             const titleEl = findElement(DEPS.title, el);
+            const checkbox = findElement(DEPS.checkbox, el);
+            const label = checkbox ? checkbox.getAttribute('aria-label') : '';
+            const keyTitle = label || titleEl?.textContent || '';
             const title = titleEl?.textContent.trim() || 'Untitled Source';
             const iconEl = findElement(DEPS.icon, el);
             const iconName = iconEl?.textContent.trim() || 'article';
             const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
-            const key = generateSourceKey(el, index);
-            const checkbox = findElement(DEPS.checkbox, el);
+            const key = generateSourceKey(keyTitle, index);
 
             // Heuristic to detect if a source is currently loading
             // NotebookLM uses role="progressbar" or mat-spinner when loading a document
