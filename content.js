@@ -2660,7 +2660,27 @@
         module.exports = {
             areAllAncestorsEnabled,
             parentMap,
-            groupsById
+            groupsById,
+            executeBatchDelete,
+            pendingDeleteKeys,
+            sourcesByKey,
+            state,
+            DEPS,
+            _getIsDeletingSources: () => isDeletingSources,
+            _setIsDeletingSources: (val) => { isDeletingSources = val; },
+            _resetState: () => {
+                state.groups = [];
+                state.ungrouped = [];
+                state.filterQuery = '';
+                state.isDeleteMode = false;
+                pendingDeleteKeys.clear();
+                isDeletingSources = false;
+                groupsById.clear();
+                sourcesByKey.clear();
+                parentMap.clear();
+                shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
+                freshRowCache = null;
+            }
         };
     }
 
