@@ -323,6 +323,7 @@ describe('executeBatchDelete', () => {
 });
 
 describe('saveState', () => {
+describe('findFreshCheckbox', () => {
     let mod;
 
     beforeEach(() => {
@@ -351,6 +352,31 @@ describe('saveState', () => {
         // Make debounce execute synchronously for tests
         global.debounce = (func) => (...args) => func(...args);
         global.isDescendant = utils.isDescendant;
+        // Setup DOM mock
+        global.document = {
+            querySelectorAll: jest.fn(() => []),
+            querySelector: jest.fn(() => null),
+            createElement: jest.fn(() => ({ attachShadow: () => ({}) }))
+        };
+
+        // Microtask queue processing control
+        let queuedTask = null;
+        global.queueMicrotask = jest.fn((cb) => {
+            queuedTask = cb;
+        });
+
+        global.processMicrotasks = () => {
+            if (queuedTask) {
+                queuedTask();
+                queuedTask = null;
+            }
+        };
+
+        // Prevent errors for missing globals
+        global.window = { location: { pathname: '/notebook/testproject' } };
+        global.MutationObserver = class { observe() {} disconnect() {} };
+        global.location = { href: 'http://localhost' };
+        global.chrome = { i18n: { getMessage: (key) => key } };
 
         mod = require('./content.js');
         if (mod._resetState) mod._resetState();
@@ -433,5 +459,98 @@ describe('saveState', () => {
         );
 
         consoleWarnSpy.mockRestore();
+        delete global.document;
+        delete global.queueMicrotask;
+        delete global.processMicrotasks;
+        delete global.window;
+        delete global.MutationObserver;
+        delete global.location;
+        delete global.chrome;
+    });
+
+    it('returns null if sourceKey is not found in sourcesByKey', () => {
+        expect(mod.findFreshCheckbox('invalidKey')).toBeNull();
+    });
+
+    it('populates freshRowCache and finds the correct checkbox', () => {
+        const sourceTitle = 'Test Document';
+        mod.sourcesByKey.set('source1', { key: 'source1', title: sourceTitle });
+
+        const mockCheckbox = { type: 'checkbox' };
+        const mockTitleEl = { textContent: `  ${sourceTitle}  ` };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                if (mod.DEPS.checkbox.includes(sel)) return mockCheckbox;
+                return null;
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        const result = mod.findFreshCheckbox('source1');
+
+        expect(result).toBe(mockCheckbox);
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+        expect(mod._getFreshRowCache().get(sourceTitle)).toBe(mockRow);
+        expect(global.queueMicrotask).toHaveBeenCalled();
+    });
+
+    it('returns null if no fresh row is found matching the title', () => {
+        mod.sourcesByKey.set('source2', { key: 'source2', title: 'Looking For This' });
+
+        const mockTitleEl = { textContent: 'Completely Different Title' };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null;
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        const result = mod.findFreshCheckbox('source2');
+
+        expect(result).toBeNull();
+    });
+
+    it('clears freshRowCache after microtasks execute', () => {
+        const sourceTitle = 'Temp Title';
+        mod.sourcesByKey.set('source3', { key: 'source3', title: sourceTitle });
+
+        const mockTitleEl = { textContent: sourceTitle };
+        const mockRow = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
+                return null; // Don't even need a checkbox to test cache clearing
+            })
+        };
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRow];
+            }
+            return [];
+        });
+
+        // First call populates cache and queues microtask
+        mod.findFreshCheckbox('source3');
+        expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
+
+        // Simulate microtask execution
+        global.processMicrotasks();
+
+        // Cache should be cleared
+        expect(mod._getFreshRowCache()).toBeNull();
     });
 });
