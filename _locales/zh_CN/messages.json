@@ -44,8 +44,19 @@
     "ui_ungrouped": {
         "message": "未分组"
     },
-    "ui_batch_delete": {
-        "message": "批量删除"
+    "ui_batch_action": {
+        "message": "批量操作"
+    },
+    "ui_batch_add_to_folder": {
+        "message": "批量加入文件夹"
+    },
+    "ui_batch_add_count": {
+        "message": "加入 ($1)",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
     },
     "ui_cancel": {
         "message": "取消"
