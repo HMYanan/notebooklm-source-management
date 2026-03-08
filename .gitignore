@@ -21,3 +21,5 @@ always_update_changelog.md
 
 # PLAN
 PLAN.md
+# Dependencies
+node_modules/
