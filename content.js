@@ -35,6 +35,7 @@
     let isSyncingState = false;
     let clickQueue = [];
     let isProcessingQueue = false;
+    let customHeight = null; // Store user defined height
     let scrollObserver = null; // Store MutationObserver globally for teardown
     let healthCheckInterval = null; // Store heartbeat interval for teardown
 
@@ -392,7 +393,8 @@
             groups: state.groups,
             groupsById: Object.fromEntries(groupsById),
             ungrouped: state.ungrouped,
-            enabledMap: enabledMap
+            enabledMap: enabledMap,
+            customHeight: customHeight
         };
         debouncedStorageSet(key, persistableState);
     }
@@ -417,6 +419,11 @@
                             if (g.enabled === undefined) g.enabled = true;
                             if (g.collapsed === undefined) g.collapsed = false;
                         });
+                    }
+                    if (stateData.customHeight) {
+                        customHeight = stateData.customHeight;
+                        const container = shadowRoot.querySelector('.sp-container');
+                        if (container) container.style.height = `${customHeight}px`;
                     }
                 }
                 buildParentMap();
@@ -1627,12 +1634,34 @@
             .sp-container {
                 display: flex;
                 flex-direction: column;
-                flex-grow: 1;
-                min-height: 0;
-                height: 100%;
+                max-height: calc(100vh - 220px);
+                min-height: 150px;
                 font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                 color: var(--sp-text-primary);
                 position: relative;
+            }
+            .sp-resizer {
+                height: 8px;
+                width: 100%;
+                cursor: ns-resize;
+                position: absolute;
+                bottom: -4px;
+                left: 0;
+                z-index: 10;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            .sp-resizer::after {
+                content: '';
+                width: 30px;
+                height: 3px;
+                background-color: var(--sp-border-medium);
+                border-radius: 3px;
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-resizer:hover::after {
+                background-color: var(--sp-accent);
             }
             
             /* Sticky Header with Glassmorphism */
@@ -2503,9 +2532,36 @@
                     ])
                 ])
             ]),
-            el('div', { id: 'sources-list' })
+            el('div', { id: 'sources-list' }),
+            el('div', { className: 'sp-resizer' })
         ]);
         shadowRoot.appendChild(containerHtml);
+
+        // Handle Resizing
+        const container = shadowRoot.querySelector('.sp-container');
+        const resizer = shadowRoot.querySelector('.sp-resizer');
+        let startY, startHeight;
+
+        resizer.addEventListener('mousedown', (e) => {
+            startY = e.clientY;
+            startHeight = parseInt(document.defaultView.getComputedStyle(container).height, 10);
+            document.documentElement.addEventListener('mousemove', doDrag, false);
+            document.documentElement.addEventListener('mouseup', stopDrag, false);
+            container.style.userSelect = 'none'; // Prevent text selection during drag
+        });
+
+        function doDrag(e) {
+            const newHeight = startHeight + (e.clientY - startY);
+            container.style.height = `${newHeight}px`;
+        }
+
+        function stopDrag() {
+            document.documentElement.removeEventListener('mousemove', doDrag, false);
+            document.documentElement.removeEventListener('mouseup', stopDrag, false);
+            container.style.userSelect = '';
+            customHeight = parseInt(container.style.height, 10);
+            saveState(); // Save the new height
+        }
 
         shadowRoot.getElementById('sp-new-group-btn').addEventListener('click', () => handleAddNewGroup());
 
@@ -2543,18 +2599,9 @@
         listContainer.addEventListener('drop', handleDrop);
         listContainer.addEventListener('dragend', handleDragEnd);
 
-        const scrollArea = findElement(DEPS.scroll, sourcePanel);
         const panelHeader = sourcePanel.querySelector('.panel-header') || sourcePanel.firstElementChild || sourcePanel;
-
-        if (scrollArea || panelHeader) {
-            if (scrollArea && scrollArea.parentElement) {
-                // Insert right before the native scroll area (which contains the sources)
-                scrollArea.parentElement.insertBefore(extensionRoot, scrollArea);
-            } else if (panelHeader) {
-                // Fallback: insert after header
-                panelHeader.insertAdjacentElement('afterend', extensionRoot);
-            }
-
+        if (panelHeader) {
+            panelHeader.insertAdjacentElement('afterend', extensionRoot);
             document.addEventListener('change', handleOriginalCheckboxChange, true);
 
             // --- Global Native Glassmorphism Injection ---
@@ -2695,6 +2742,7 @@
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _getFreshRowCache: () => freshRowCache,
+            _setCustomHeight: (val) => { customHeight = val; },
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -2705,6 +2753,7 @@
                 groupsById.clear();
                 sourcesByKey.clear();
                 parentMap.clear();
+                customHeight = null;
                 projectId = null;
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
                 freshRowCache = null;
