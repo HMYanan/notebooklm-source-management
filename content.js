@@ -1063,6 +1063,14 @@
                 return;
             }
 
+            if (target.closest('.icon-container') && !source.isLoading) {
+                 const titleEl = findElement(DEPS.title, source.element);
+                 if (titleEl) {
+                     titleEl.click();
+                 }
+                 return;
+            }
+
             const checkbox = sourceRow.querySelector('.sp-checkbox');
 
             if (sourceKey && checkbox) {
@@ -1564,25 +1572,25 @@
                 --sp-border-light: rgba(0,0,0,0.1);
                 --sp-border-medium: rgba(0,0,0,0.15);
                 --sp-border-checkbox: rgba(0,0,0,0.25);
-                --sp-text-primary: #1d1d1f;
-                --sp-text-secondary: #86868b;
+                --sp-text-primary: #1A1A1C;
+                --sp-text-secondary: #6E6E73;
                 --sp-text-toast: #fff;
-                --sp-text-badge: #86868b;
+                --sp-text-badge: #6E6E73;
                 --sp-accent: #007aff;
                 --sp-accent-danger: #ff3b30;
                 --sp-accent-success: #34c759;
                 --sp-drag-bg: rgba(0, 122, 255, 0.05);
                 --sp-drag-into-bg: rgba(0, 122, 255, 0.1);
-                --sp-shadow-toast: 0 4px 12px rgba(0,0,0,0.15);
-                --sp-shadow-button: 0 1px 2px rgba(0,0,0,0.03);
+                --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.08);
+                --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.08);
                 --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
                 --sp-icon-button-hover: rgba(0,0,0,0.08);
                 
                 /* Global Glassmorphism Variables */
-                --sp-glass-bg-body: rgba(255, 255, 255, 0.75);
+                --sp-glass-bg-body: rgba(255, 255, 255, 0.85);
                 --sp-glass-bg-menu: rgba(255, 255, 255, 0.85);
-                --sp-glass-border: rgba(0, 0, 0, 0.1);
-                --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+                --sp-glass-border: rgba(0, 0, 0, 0.05);
+                --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
             }
 
             /* -------- Dark Mode Override -------- */
@@ -1610,13 +1618,13 @@
                     --sp-accent-success: #30d158;
                     --sp-drag-bg: rgba(10, 132, 255, 0.1);
                     --sp-drag-into-bg: rgba(10, 132, 255, 0.15);
-                    --sp-shadow-toast: 0 4px 12px rgba(0,0,0,0.5);
-                    --sp-shadow-button: 0 1px 2px rgba(0,0,0,0.2);
+                    --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.4);
+                    --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.2);
                     --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.3), 0 0 1px rgba(0,0,0,0.2);
                     --sp-icon-button-hover: rgba(255,255,255,0.15);
                     
                     /* Global Glassmorphism Variables */
-                    --sp-glass-bg-body: rgba(28, 28, 30, 0.75);
+                    --sp-glass-bg-body: rgba(28, 28, 30, 0.85);
                     --sp-glass-bg-menu: rgba(44, 44, 46, 0.85);
                     --sp-glass-border: rgba(255, 255, 255, 0.15);
                     --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -1628,7 +1636,7 @@
                 flex-direction: column;
                 max-height: calc(100vh - 220px);
                 min-height: 150px;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                 color: var(--sp-text-primary);
                 position: relative;
             }
@@ -1929,10 +1937,16 @@
             }
             .icon-container {
                 flex-shrink: 0;
-                margin-right: 8px;
+                margin-right: 12px;
                 display: flex;
                 align-items: center;
                 color: var(--sp-text-secondary);
+                transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+                cursor: pointer;
+            }
+            .icon-container:hover {
+                transform: scale(0.95);
+                opacity: 0.8;
             }
             .icon-container .google-symbols {
                 font-size: 16px;
@@ -2630,7 +2644,7 @@
                     /* Respect system dark mode for global variables if not defined in shadow root */
                     @media (prefers-color-scheme: dark) {
                         body .cdk-overlay-container {
-                            --sp-glass-bg-body: rgba(28, 28, 30, 0.75);
+                            --sp-glass-bg-body: rgba(28, 28, 30, 0.85);
                             --sp-glass-bg-menu: rgba(44, 44, 46, 0.85);
                             --sp-glass-border: rgba(255, 255, 255, 0.15);
                             --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -2728,6 +2742,7 @@
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _getFreshRowCache: () => freshRowCache,
+            _setCustomHeight: (val) => { customHeight = val; },
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
