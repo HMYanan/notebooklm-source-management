@@ -1636,7 +1636,7 @@
                 flex-direction: column;
                 max-height: calc(100vh - 220px);
                 min-height: 150px;
-                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                font-family: inherit, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                 color: var(--sp-text-primary);
                 position: relative;
             }
@@ -1749,11 +1749,7 @@
                 border-radius: 4px;
                 transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
-            .sp-icon-button:hover {
-                background-color: var(--sp-icon-button-hover);
-                color: var(--sp-text-primary);
-                transform: translateY(-50%) scale(1.08);
-            }
+            .sp-icon-button:hover { color: var(--sp-text-primary); transform: translateY(-50%) scale(0.98); opacity: 0.8; }
             .sp-icon-button:active {
                 transform: translateY(-50%) scale(0.85);
             }
@@ -1769,17 +1765,14 @@
                 background-color: var(--sp-bg-button);
                 font-size: 13px;
                 font-weight: 500;
-                border-radius: 12px;
+                border-radius: 10px;
                 padding: 6px 12px;
                 cursor: pointer;
                 transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
                 white-space: nowrap;
                 box-shadow: var(--sp-shadow-button);
             }
-            .sp-button:hover {
-                background-color: var(--sp-bg-button-hover);
-                border-color: var(--sp-border-medium);
-            }
+            .sp-button:hover { background-color: var(--sp-bg-button); transform: scale(0.98); opacity: 0.9; }
             .sp-button:active {
                 background-color: var(--sp-bg-button-active);
                 transform: scale(0.95);
@@ -1892,7 +1885,7 @@
                 display: flex;
                 align-items: center;
                 padding: 6px 8px;
-                border-radius: 12px;
+                border-radius: 10px;
                 margin: 2px 0;
                 transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
                 color: var(--sp-text-primary);
@@ -1906,17 +1899,11 @@
                 border: 1px solid transparent;
             }
             .group-header {
-                font-weight: 600;
+                font-weight: 500;
                 background-color: var(--sp-bg-primary);
             }
-            .source-item:hover, .group-header:hover {
-                background-color: var(--sp-bg-hover);
-                z-index: 2;
-                transform: translateX(3px);
-            }
-            .source-item:active, .group-header:active {
-                transform: translateX(3px) scale(0.98);
-            }
+            .source-item:hover, .group-header:hover { z-index: 2; transform: scale(0.98); opacity: 0.95; }
+            .source-item:active, .group-header:active { transform: scale(0.96); }
             .sp-caret {
                 background: none;
                 border: none;
@@ -1983,7 +1970,7 @@
                 background: none;
                 border: none;
                 cursor: pointer;
-                border-radius: 12px;
+                border-radius: 10px;
                 width: 24px;
                 height: 24px;
                 display: flex;
@@ -2015,11 +2002,7 @@
             .group-title + .badge {
                 margin-left: auto;
             }
-            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover {
-                background-color: var(--sp-icon-button-hover);
-                color: var(--sp-text-primary);
-                transform: scale(1.1);
-            }
+            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover { color: var(--sp-text-primary); transform: scale(0.98); opacity: 0.8; }
             .sp-delete-button:hover {
                 background-color: rgba(255, 59, 48, 0.1);
                 color: var(--sp-accent-danger);
@@ -2173,7 +2156,7 @@
                 -webkit-backdrop-filter: blur(24px);
                 border: 1px solid rgba(0, 0, 0, 0.05);
                 border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
                 z-index: 10001;
                 display: flex;
                 flex-direction: column;
@@ -2213,7 +2196,7 @@
                 -webkit-backdrop-filter: blur(24px);
                 border: 1px solid rgba(0, 0, 0, 0.05);
                 border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
                 z-index: 10001;
                 display: flex;
                 flex-direction: column;
@@ -2618,7 +2601,7 @@
                         background-color: var(--sp-glass-bg-menu, rgba(255, 255, 255, 0.85)) !important;
                         backdrop-filter: blur(20px) saturate(150%) !important;
                         -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
-                        border-radius: 12px !important;
+                        border-radius: 16px !important;
                         border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.1)) !important;
                         box-shadow: var(--sp-glass-shadow, 0 8px 32px rgba(0, 0, 0, 0.12)) !important;
                         overflow: hidden !important;
@@ -2639,6 +2622,105 @@
                         border-radius: 16px !important;
                         border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.1)) !important;
                         box-shadow: var(--sp-glass-shadow, 0 8px 32px rgba(0, 0, 0, 0.12)) !important;
+                    }
+
+
+                    /* --- NOTEBOOK NATIVE UI GLOBAL OVERRIDES --- */
+
+                    /* Typography Base */
+                    body, .mat-typography, [class*="mat-"] {
+                        font-family: inherit, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+                        color: var(--sp-text-primary, #1A1A1C) !important;
+                    }
+
+                    /* 1. Spatial Minimalism & Layout: Strip unnecessary borders and backgrounds */
+                    /* Source Panel and App Layout Area */
+                    .source-panel, [data-testid="source-panel"], .app-container, .main-container, [role="main"], mat-sidenav-container, mat-sidenav-content, mat-sidenav {
+                        background: transparent !important;
+                        border: none !important;
+                        box-shadow: none !important;
+                    }
+
+                    /* Cards & Primary Blocks (e.g. Chat, Document view) */
+                    mat-card, .chat-container, .document-view, [data-testid="chat-panel"], [data-testid="document-panel"] {
+                        background: rgba(255, 255, 255, 0.4) !important;
+                        border: 1px solid rgba(0, 0, 0, 0.05) !important;
+                        border-radius: 16px !important;
+                        padding: 16px !important;
+                        margin: 8px !important;
+                        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04) !important;
+                        transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1) !important;
+                    }
+
+                    /* Give cards glass effect if floating */
+                    .floating-panel, .cdk-dialog-container mat-dialog-container {
+                        background: rgba(255, 255, 255, 0.85) !important;
+                        backdrop-filter: blur(20px) saturate(180%) !important;
+                        -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+                        border: 1px solid rgba(0, 0, 0, 0.05) !important;
+                        border-radius: 16px !important;
+                        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08) !important;
+                    }
+
+                    /* Inputs and Textareas */
+                    input[type="text"], textarea, .mat-mdc-text-field-wrapper, .mat-mdc-form-field-flex {
+                        background: rgba(0,0,0,0.03) !important;
+                        border: 1px solid transparent !important;
+                        border-radius: 10px !important;
+                        transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1) !important;
+                        box-shadow: none !important;
+                    }
+                    input[type="text"]:focus, textarea:focus, .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
+                        background: #fff !important;
+                        border: 1px solid rgba(0, 0, 0, 0.1) !important;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+                        transform: scale(0.99) !important;
+                    }
+
+                    /* Buttons (Native Notebook) */
+                    button, .mat-mdc-button, .mat-mdc-unelevated-button, .mat-mdc-outlined-button, .mat-mdc-raised-button {
+                        border-radius: 10px !important;
+                        transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1) !important;
+                        font-weight: 500 !important;
+                        box-shadow: none !important;
+                    }
+                    button:not([disabled]):hover, .mat-mdc-button:not([disabled]):hover {
+                        transform: scale(0.98) !important;
+                        opacity: 0.9 !important;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+                    }
+                    button:not([disabled]):active, .mat-mdc-button:not([disabled]):active {
+                        transform: scale(0.96) !important;
+                    }
+
+                    /* Dark Mode Native Overrides */
+                    @media (prefers-color-scheme: dark) {
+                        body, .mat-typography, [class*="mat-"] {
+                            color: var(--sp-text-primary, #f5f5f7) !important;
+                            background-color: transparent !important;
+                        }
+                        mat-card, .chat-container, .document-view, [data-testid="chat-panel"], [data-testid="document-panel"] {
+                            background: rgba(28, 28, 30, 0.4) !important;
+                            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+                            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2) !important;
+                        }
+                        .floating-panel, .cdk-dialog-container mat-dialog-container {
+                            background: rgba(28, 28, 30, 0.85) !important;
+                            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+                        }
+                        input[type="text"], textarea, .mat-mdc-text-field-wrapper, .mat-mdc-form-field-flex {
+                            background: rgba(255,255,255,0.05) !important;
+                        }
+                        input[type="text"]:focus, textarea:focus, .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
+                            background: rgba(28, 28, 30, 1) !important;
+                            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+                        }
+                        /* Lessen the starkness of secondary text */
+                        .secondary-text, .mat-mdc-form-field-subscript-wrapper {
+                            color: #98989d !important;
+                        }
                     }
 
                     /* Respect system dark mode for global variables if not defined in shadow root */
