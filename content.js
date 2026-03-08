@@ -22,9 +22,9 @@
         groups: [], // Holds top-level group IDs
         ungrouped: [],
         filterQuery: '',
-        isDeleteMode: false,
+        isBatchMode: false,
     };
-    let pendingDeleteKeys = new Set();
+    let pendingBatchKeys = new Set();
     let isDeletingSources = false;
     let groupsById = new Map(); // Flat map of ALL group objects for easy lookup
     let sourcesByKey = new Map();
@@ -230,10 +230,10 @@
 
     // --- Batch Delete Deletion Engine ---
     async function executeBatchDelete() {
-        if (pendingDeleteKeys.size === 0 || isDeletingSources) return;
+        if (pendingBatchKeys.size === 0 || isDeletingSources) return;
         isDeletingSources = true;
 
-        const keysToDelete = Array.from(pendingDeleteKeys);
+        const keysToDelete = Array.from(pendingBatchKeys);
         const total = keysToDelete.length;
         let deletedCount = 0;
 
@@ -358,8 +358,8 @@
 
         // Cleanup after all deletions are processed
         isDeletingSources = false;
-        pendingDeleteKeys.clear();
-        state.isDeleteMode = false;
+        pendingBatchKeys.clear();
+        state.isBatchMode = false;
 
         showToast(chrome.i18n.getMessage("ui_deleted_toast", [deletedCount.toString()]));
         render(); // The heartbeat observer will catch the actual DOM removals eventually
@@ -440,14 +440,15 @@
     // UI RENDERING - MODALS
     // ==========================================
 
-    function renderMoveToFolderModal(sourceKey) {
+    function renderMoveToFolderModal(sourceKeys) {
         if (!shadowRoot) return;
+
+        // Normalize single key to array for unified processing
+        const keys = Array.isArray(sourceKeys) ? sourceKeys : Array.from(sourceKeys);
+        if (keys.length === 0) return;
 
         // Cleanup existing modal if any
         closeMoveToFolderModal();
-
-        const source = sourcesByKey.get(sourceKey);
-        if (!source) return;
 
         const backdrop = el('div', { className: 'sp-overlay-backdrop', id: 'sp-move-backdrop' });
         const modal = el('div', { className: 'sp-folder-modal', id: 'sp-move-modal' });
@@ -470,7 +471,7 @@
                 ]);
 
                 folderBtn.addEventListener('click', () => {
-                    executeMoveToFolder(sourceKey, group.id);
+                    executeMoveToFolder(keys, group.id);
                 });
                 content.appendChild(folderBtn);
             }
@@ -528,34 +529,38 @@
         }
     }
 
-    function executeMoveToFolder(sourceKey, targetGroupId) {
-        // Find source in ungrouped
-        const sourceIndex = state.ungrouped.indexOf(sourceKey);
-        if (sourceIndex === -1) {
+    function executeMoveToFolder(sourceKeys, targetGroupId) {
+        const targetGroup = groupsById.get(targetGroupId);
+        if (!targetGroup) {
             closeMoveToFolderModal();
             return;
         }
 
-        const sourceData = sourcesByKey.get(sourceKey); // Get full source object
-        const targetGroup = groupsById.get(targetGroupId);
+        const keys = Array.isArray(sourceKeys) ? sourceKeys : Array.from(sourceKeys);
 
-        if (targetGroup && sourceData) {
-            // Remove from ungrouped
-            state.ungrouped.splice(sourceIndex, 1);
+        keys.forEach(sourceKey => {
+            const sourceData = sourcesByKey.get(sourceKey);
+            if (sourceData) {
+                // Remove from its current place in the tree (ungrouped or group)
+                removeSourceFromTree(sourceKey);
 
-            // Add to target group
-            targetGroup.children.push({
-                type: 'source',
-                key: sourceKey,
-                // No need to store title, iconName, enabled in group children,
-                // as they are already in sourcesByKey.
-                // The child object only needs type and key/id.
-            });
+                // Add to target group
+                targetGroup.children.push({
+                    type: 'source',
+                    key: sourceKey
+                });
+            }
+        });
 
-            buildParentMap();
-            saveState();
-            render();
+        // After moving from batch mode, exit batch mode
+        if (state.isBatchMode && pendingBatchKeys.size > 0) {
+            state.isBatchMode = false;
+            pendingBatchKeys.clear();
         }
+
+        buildParentMap();
+        saveState();
+        render();
         closeMoveToFolderModal();
     }
 
@@ -616,7 +621,7 @@
             if (isGated) extraClasses += ' gated';
             if (isFailed) extraClasses += ' failed-source';
             if (isLoading) extraClasses += ' loading-source';
-            if (state.isDeleteMode && pendingDeleteKeys.has(source.key)) extraClasses += ' selected-for-delete';
+            if (state.isBatchMode && pendingBatchKeys.has(source.key)) extraClasses += ' selected-for-batch';
 
             let titleAttr = false;
             if (isFailed) titleAttr = chrome.i18n.getMessage("ui_source_import_failed");
@@ -624,7 +629,7 @@
 
             return el('div', {
                 className: 'source-item' + extraClasses,
-                draggable: !state.isDeleteMode && !isFailed && !isLoading ? 'true' : 'false',
+                draggable: !state.isBatchMode && !isFailed && !isLoading ? 'true' : 'false',
                 dataset: { sourceKey: source.key },
                 title: titleAttr
             }, [
@@ -635,25 +640,25 @@
                 ]),
                 el('div', { className: 'menu-container' }, [
                     // Only show standard options buttons when not in delete mode AND not loading
-                    !state.isDeleteMode && !isLoading ? el('button', {
+                    !state.isBatchMode && !isLoading ? el('button', {
                         className: 'sp-move-to-folder-button',
                         dataset: { sourceKey: source.key },
                         title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder"
                     }, [
                         el('span', { className: 'google-symbols' }, ['drive_file_move'])
                     ]) : '',
-                    !state.isDeleteMode && !isLoading ? el('button', { className: 'sp-more-button', dataset: { sourceKey: source.key } }, [
+                    !state.isBatchMode && !isLoading ? el('button', { className: 'sp-more-button', dataset: { sourceKey: source.key } }, [
                         el('span', { className: 'google-symbols' }, ['more_vert'])
                     ]) : ''
                 ]),
                 el('div', { className: 'title-container' }, [source.title]),
                 el('div', { className: 'checkbox-container' }, [
-                    state.isDeleteMode ?
+                    state.isBatchMode ?
                         el('input', {
                             type: 'checkbox',
-                            className: 'sp-delete-checkbox sp-checkbox',
+                            className: 'sp-batch-checkbox sp-checkbox',
                             dataset: { sourceKey: source.key },
-                            checked: pendingDeleteKeys.has(source.key),
+                            checked: pendingBatchKeys.has(source.key),
                             disabled: isFailed || isLoading
                         })
                         :
@@ -693,14 +698,14 @@
                 dataset: { groupId: group.id },
                 style: `padding-left: ${level * 20}px`
             }, [
-                el('div', { className: 'group-header', draggable: !state.isDeleteMode ? 'true' : 'false', dataset: { dragType: 'group', groupId: group.id } }, [
+                el('div', { className: 'group-header', draggable: !state.isBatchMode ? 'true' : 'false', dataset: { dragType: 'group', groupId: group.id } }, [
                     el('button', {
                         className: 'sp-caret' + (group.collapsed ? ' collapsed' : ''),
                         title: group.collapsed ? chrome.i18n.getMessage("ui_expand") : chrome.i18n.getMessage("ui_collapse")
                     }, [
                         el('span', { className: 'google-symbols' }, ['arrow_drop_down'])
                     ]),
-                    !state.isDeleteMode ? el('label', {
+                    !state.isBatchMode ? el('label', {
                         className: 'sp-toggle-switch',
                         title: group.enabled ? chrome.i18n.getMessage("ui_disable_group") : chrome.i18n.getMessage("ui_enable_group")
                     }, [
@@ -752,14 +757,20 @@
             });
         }
 
-        // Render Delete Action Bar
-        if (state.isDeleteMode) {
-            const actionBar = el('div', { className: 'sp-delete-action-bar' }, [
-                el('button', { className: 'sp-button sp-cancel-delete-btn' }, [chrome.i18n.getMessage("ui_cancel")]),
-                el('button', {
-                    className: 'sp-button sp-confirm-delete-btn',
-                    disabled: pendingDeleteKeys.size === 0 || isDeletingSources
-                }, [isDeletingSources ? chrome.i18n.getMessage("ui_deleting") : chrome.i18n.getMessage("ui_delete_count", [pendingDeleteKeys.size.toString()])])
+        // Render Batch Action Bar
+        if (state.isBatchMode) {
+            const actionBar = el('div', { className: 'sp-batch-action-bar' }, [
+                el('button', { className: 'sp-button sp-cancel-batch-btn' }, [chrome.i18n.getMessage("ui_cancel")]),
+                el('div', { className: 'sp-batch-actions' }, [
+                    el('button', {
+                        className: 'sp-button sp-batch-add-folder-btn',
+                        disabled: pendingBatchKeys.size === 0 || isDeletingSources
+                    }, [chrome.i18n.getMessage("ui_batch_add_count", [pendingBatchKeys.size.toString()])]),
+                    el('button', {
+                        className: 'sp-button sp-confirm-delete-btn',
+                        disabled: pendingBatchKeys.size === 0 || isDeletingSources
+                    }, [isDeletingSources ? chrome.i18n.getMessage("ui_deleting") : chrome.i18n.getMessage("ui_delete_count", [pendingBatchKeys.size.toString()])])
+                ])
             ]);
             fragment.appendChild(actionBar);
         }
@@ -1033,7 +1044,7 @@
             }
         }
         // Handle clicking on the source item row to toggle checkbox (unless clicking button/checkbox)
-        else if (target.closest('.source-item') && !target.closest('.sp-more-button, .sp-move-to-folder-button, input, .sp-delete-checkbox')) {
+        else if (target.closest('.source-item') && !target.closest('.sp-more-button, .sp-move-to-folder-button, input, .sp-batch-checkbox')) {
             const sourceRow = target.closest('.source-item');
             const sourceKey = sourceRow.dataset.sourceKey;
             const source = sourcesByKey.get(sourceKey);
@@ -1042,11 +1053,11 @@
                 return;
             }
 
-            if (state.isDeleteMode) {
-                if (pendingDeleteKeys.has(sourceKey)) {
-                    pendingDeleteKeys.delete(sourceKey);
+            if (state.isBatchMode) {
+                if (pendingBatchKeys.has(sourceKey)) {
+                    pendingBatchKeys.delete(sourceKey);
                 } else {
-                    pendingDeleteKeys.add(sourceKey);
+                    pendingBatchKeys.add(sourceKey);
                 }
                 render(); // Re-render to show selection styling
                 return;
@@ -1075,29 +1086,34 @@
             }
         }
 
-        // Handle Delete Checkbox explicit click directly
-        const deleteCheckbox = target.closest('.sp-delete-checkbox');
-        if (deleteCheckbox) {
-            const sourceKey = deleteCheckbox.dataset.sourceKey;
-            if (pendingDeleteKeys.has(sourceKey)) {
-                pendingDeleteKeys.delete(sourceKey);
+        // Handle Batch Checkbox explicit click directly
+        const batchCheckbox = target.closest('.sp-batch-checkbox');
+        if (batchCheckbox) {
+            const sourceKey = batchCheckbox.dataset.sourceKey;
+            if (pendingBatchKeys.has(sourceKey)) {
+                pendingBatchKeys.delete(sourceKey);
             } else {
-                pendingDeleteKeys.add(sourceKey);
+                pendingBatchKeys.add(sourceKey);
             }
             render();
             return;
         }
 
-        // Handle Delete Action Bar Buttons
-        if (target.closest('.sp-cancel-delete-btn')) {
-            state.isDeleteMode = false;
-            pendingDeleteKeys.clear();
+        // Handle Batch Action Bar Buttons
+        if (target.closest('.sp-cancel-batch-btn')) {
+            state.isBatchMode = false;
+            pendingBatchKeys.clear();
             render();
             return;
         }
 
-        if (target.closest('.sp-confirm-delete-btn') && !isDeletingSources && pendingDeleteKeys.size > 0) {
+        if (target.closest('.sp-confirm-delete-btn') && !isDeletingSources && pendingBatchKeys.size > 0) {
             executeBatchDelete();
+            return;
+        }
+
+        if (target.closest('.sp-batch-add-folder-btn') && pendingBatchKeys.size > 0) {
+            renderMoveToFolderModal(pendingBatchKeys);
             return;
         }
 
@@ -2426,31 +2442,51 @@
                 transform: translateX(14px);
             }
             
-            /* --- Delete Mode Additions --- */
-            .source-item.selected-for-delete {
-                background-color: rgba(255, 59, 48, 0.05);
-                border: 1px dashed var(--sp-accent-danger);
+            /* --- Batch Mode Additions --- */
+            .source-item.selected-for-batch {
+                background-color: rgba(0, 122, 255, 0.05);
+                border: 1px dashed var(--sp-accent);
             }
-            .sp-delete-checkbox {
-                border-color: var(--sp-accent-danger);
-                background-color: rgba(255, 59, 48, 0.1);
+            .sp-batch-checkbox {
+                border-color: var(--sp-accent);
+                background-color: rgba(0, 122, 255, 0.1);
             }
-            .sp-delete-checkbox:checked {
-                background-color: var(--sp-accent-danger);
-                border-color: var(--sp-accent-danger);
+            .sp-batch-checkbox:checked {
+                background-color: var(--sp-accent);
+                border-color: var(--sp-accent);
             }
-            .sp-delete-action-bar {
+            .sp-batch-action-bar {
                 display: flex;
-                justify-content: flex-end;
+                justify-content: space-between;
+                align-items: center;
                 gap: 8px;
-                padding: 12px 8px 8px 8px;
+                padding: 12px 16px;
                 margin-top: 8px;
-                border-top: 1px solid var(--sp-border-light);
                 position: sticky;
-                bottom: 0;
-                background: var(--sp-bg-primary);
-                backdrop-filter: blur(10px);
+                bottom: 8px;
+                background: var(--sp-glass-bg-body, rgba(255, 255, 255, 0.85));
+                backdrop-filter: blur(20px) saturate(180%);
+                -webkit-backdrop-filter: blur(20px) saturate(180%);
+                border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.05));
+                border-radius: 16px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
                 z-index: 5;
+            }
+            .sp-batch-actions {
+                display: flex;
+                gap: 8px;
+            }
+            .sp-batch-add-folder-btn {
+                background-color: var(--sp-accent);
+                color: white;
+                border-color: transparent;
+            }
+            .sp-batch-add-folder-btn:hover {
+                background-color: #0066cc;
+            }
+            .sp-batch-add-folder-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
             }
             .sp-confirm-delete-btn {
                 background-color: var(--sp-accent-danger);
@@ -2458,11 +2494,15 @@
                 border-color: transparent;
             }
             .sp-confirm-delete-btn:hover {
-                background-color: #ff2d20; /* Darker red */
+                background-color: #ff2d20;
             }
             .sp-confirm-delete-btn:disabled {
                 opacity: 0.5;
                 cursor: not-allowed;
+            }
+            .sp-cancel-batch-btn {
+                background: transparent;
+                border: 1px solid var(--sp-border-light);
             }
         `;
         shadowRoot.appendChild(style);
@@ -2470,7 +2510,7 @@
         const containerHtml = el('div', { className: 'sp-container' }, [
             el('div', { className: 'sp-controls' }, [
                 el('button', { id: 'sp-new-group-btn', className: 'sp-button' }, [chrome.i18n.getMessage("ui_new_group")]),
-                el('button', { id: 'sp-batch-delete-btn', className: 'sp-button' }, [chrome.i18n.getMessage("ui_batch_delete")]),
+                el('button', { id: 'sp-batch-action-btn', className: 'sp-button' }, [chrome.i18n.getMessage("ui_batch_action")]),
                 el('div', { className: 'sp-search-container' }, [
                     el('input', { id: 'sp-search', placeholder: chrome.i18n.getMessage("ui_filter_sources") }),
                     el('button', { id: 'sp-search-btn', className: 'sp-icon-button', title: 'Search' }, [
@@ -2511,10 +2551,10 @@
 
         shadowRoot.getElementById('sp-new-group-btn').addEventListener('click', () => handleAddNewGroup());
 
-        shadowRoot.getElementById('sp-batch-delete-btn').addEventListener('click', () => {
+        shadowRoot.getElementById('sp-batch-action-btn').addEventListener('click', () => {
             if (isDeletingSources) return;
-            state.isDeleteMode = !state.isDeleteMode;
-            pendingDeleteKeys.clear();
+            state.isBatchMode = !state.isBatchMode;
+            pendingBatchKeys.clear();
             render();
         });
 
@@ -2680,7 +2720,7 @@
             groupsById,
             executeBatchDelete,
             loadState,
-            pendingDeleteKeys,
+            pendingBatchKeys,
             sourcesByKey,
             state,
             DEPS,
@@ -2692,8 +2732,8 @@
                 state.groups = [];
                 state.ungrouped = [];
                 state.filterQuery = '';
-                state.isDeleteMode = false;
-                pendingDeleteKeys.clear();
+                state.isBatchMode = false;
+                pendingBatchKeys.clear();
                 isDeletingSources = false;
                 groupsById.clear();
                 sourcesByKey.clear();

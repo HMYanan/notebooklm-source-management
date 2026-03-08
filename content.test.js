@@ -124,22 +124,22 @@ describe('executeBatchDelete', () => {
         delete global.queueMicrotask;
     });
 
-    it('returns early if pendingDeleteKeys is empty', async () => {
-        mod.pendingDeleteKeys.clear();
+    it('returns early if pendingBatchKeys is empty', async () => {
+        mod.pendingBatchKeys.clear();
         await mod.executeBatchDelete();
         expect(mod._getIsDeletingSources()).toBe(false);
     });
 
     it('returns early if already deleting', async () => {
-        mod.pendingDeleteKeys.add('key1');
+        mod.pendingBatchKeys.add('key1');
         mod._setIsDeletingSources(true);
         await mod.executeBatchDelete();
-        expect(mod.pendingDeleteKeys.size).toBe(1);
+        expect(mod.pendingBatchKeys.size).toBe(1);
     });
 
     it('processes keys, finds more options, clicks delete and confirm', async () => {
-        mod.pendingDeleteKeys.add('key1');
-        mod.state.isDeleteMode = true;
+        mod.pendingBatchKeys.add('key1');
+        mod.state.isBatchMode = true;
 
         const mockMoreBtn = { click: jest.fn() };
         const mockSourceElement = {
@@ -174,12 +174,12 @@ describe('executeBatchDelete', () => {
         expect(mockConfirmBtn.click).toHaveBeenCalled();
 
         expect(mod._getIsDeletingSources()).toBe(false);
-        expect(mod.pendingDeleteKeys.size).toBe(0);
-        expect(mod.state.isDeleteMode).toBe(false);
+        expect(mod.pendingBatchKeys.size).toBe(0);
+        expect(mod.state.isBatchMode).toBe(false);
     });
 
     it('falls back to findFreshCheckbox if more button is not found initially', async () => {
-        mod.pendingDeleteKeys.add('key2');
+        mod.pendingBatchKeys.add('key2');
 
         const mockMoreBtn = { click: jest.fn() };
         const mockFreshRow = {
@@ -243,17 +243,17 @@ describe('executeBatchDelete', () => {
     });
 
     it('skips disabled sources', async () => {
-        mod.pendingDeleteKeys.add('disabledKey');
+        mod.pendingBatchKeys.add('disabledKey');
         mod.sourcesByKey.set('disabledKey', { key: 'disabledKey', element: {}, isDisabled: true });
 
         await mod.executeBatchDelete();
 
         expect(global.document.querySelectorAll).not.toHaveBeenCalled();
-        expect(mod.pendingDeleteKeys.size).toBe(0);
+        expect(mod.pendingBatchKeys.size).toBe(0);
     });
 
     it('clicks document.body if delete menu item is not found', async () => {
-        mod.pendingDeleteKeys.add('key3');
+        mod.pendingBatchKeys.add('key3');
         const mockMoreBtn = { click: jest.fn() };
         mod.sourcesByKey.set('key3', { key: 'key3', element: { querySelector: () => mockMoreBtn }, isDisabled: false });
 
@@ -266,7 +266,7 @@ describe('executeBatchDelete', () => {
     });
 
     it('clicks document.body if confirm button is not found', async () => {
-        mod.pendingDeleteKeys.add('key4');
+        mod.pendingBatchKeys.add('key4');
         const mockMoreBtn = { click: jest.fn() };
         mod.sourcesByKey.set('key4', { key: 'key4', element: { querySelector: () => mockMoreBtn }, isDisabled: false });
 

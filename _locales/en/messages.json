@@ -44,8 +44,19 @@
     "ui_ungrouped": {
         "message": "Ungrouped"
     },
-    "ui_batch_delete": {
-        "message": "Batch Delete"
+    "ui_batch_action": {
+        "message": "Batch Action"
+    },
+    "ui_batch_add_to_folder": {
+        "message": "Batch Add to Folder"
+    },
+    "ui_batch_add_count": {
+        "message": "Add ($1)",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
     },
     "ui_cancel": {
         "message": "Cancel"
