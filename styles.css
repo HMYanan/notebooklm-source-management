@@ -80,3 +80,53 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25) !important;
   }
 }
+
+/* ADDITIONAL NOTEBOOK NATIVE UI OVERRIDES */
+
+/* Base Layout resets */
+body, app-root, .mat-typography {
+    background: transparent !important; /* Ensure host page background breathes */
+    font-family: inherit, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+/* Left panel specific fixes to make it flush and minimal */
+.source-panel-container, aside.source-panel {
+    border-right: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* The actual source panel inner area */
+[data-testid="source-panel"] {
+    background: transparent !important;
+    border: none !important;
+}
+
+/* Remove hard material shadows on any native cards */
+.mat-mdc-card, .mdc-card {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04) !important;
+    border-radius: 16px !important;
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Notebook top app bar / header */
+mat-toolbar, .mat-toolbar, [data-testid="app-header"] {
+    background: transparent !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+    box-shadow: none !important;
+    /* Optional blur for header if it has a background color */
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+    .mat-mdc-card, .mdc-card {
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2) !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        background: rgba(28, 28, 30, 0.4) !important;
+    }
+    mat-toolbar, .mat-toolbar, [data-testid="app-header"] {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+}
