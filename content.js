@@ -41,37 +41,7 @@
 
     // --- Helper Functions ---
 
-    function el(tag, attributes = {}, children = []) {
-        const element = document.createElement(tag);
-        for (const [key, value] of Object.entries(attributes)) {
-            if (key === 'className' && value) {
-                element.className = value;
-            } else if (key === 'dataset' && value) {
-                for (const [dKey, dVal] of Object.entries(value)) {
-                    element.dataset[dKey] = dVal;
-                }
-            } else if (value !== false && value != null) {
-                const lowerKey = key.toLowerCase();
-                if (lowerKey.startsWith('on')) {
-                    console.warn(`Sources+: Blocked insecure attribute key: ${key}`);
-                    continue;
-                }
-                if (['href', 'src', 'action', 'formaction', 'srcdoc'].includes(lowerKey) && String(value).toLowerCase().replace(/[\s\x00-\x1F]/g, '').startsWith('javascript:')) {
-                    console.warn(`Sources+: Blocked insecure attribute value for ${key}`);
-                    continue;
-                }
-                element.setAttribute(key, value === true ? '' : value);
-            }
-        }
-        for (const child of children) {
-            if (typeof child === 'string') {
-                element.appendChild(document.createTextNode(child));
-            } else if (child instanceof Node) {
-                element.appendChild(child);
-            }
-        }
-        return element;
-    }
+
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {

@@ -14,6 +14,9 @@ describe('areAllAncestorsEnabled', () => {
         };
         global.setTimeout = jest.fn();
 
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
+
         const mod = require('./content.js');
 
         areAllAncestorsEnabled = mod.areAllAncestorsEnabled;
@@ -455,6 +458,9 @@ describe('findFreshCheckbox', () => {
 
     beforeEach(() => {
         jest.resetModules();
+
+        const utils = require('./src/utils.js');
+        global.el = utils.el;
 
         global.document = {
             querySelectorAll: jest.fn(() => []),
