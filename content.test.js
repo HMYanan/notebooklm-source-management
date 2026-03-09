@@ -1,24 +1,79 @@
+global.Node = class {};
+
+const setupGlobalMocks = () => {
+    global.window = { location: { pathname: '/notebook/testproject' } };
+
+    const mockElement = () => ({
+        attachShadow: jest.fn(() => ({
+            querySelector: jest.fn(() => null),
+            querySelectorAll: jest.fn(() => []),
+            getElementById: jest.fn(() => ({ addEventListener: jest.fn() })),
+            appendChild: jest.fn(),
+        })),
+        appendChild: jest.fn(),
+        setAttribute: jest.fn(),
+        addEventListener: jest.fn(),
+        remove: jest.fn(),
+        classList: { add: jest.fn(), remove: jest.fn() },
+        dataset: {},
+        matches: jest.fn(() => false),
+        closest: jest.fn(() => null),
+        querySelector: jest.fn(() => null),
+        querySelectorAll: jest.fn(() => []),
+        textContent: '',
+        className: '',
+    });
+
+    global.document = {
+        querySelector: jest.fn(() => null),
+        querySelectorAll: jest.fn(() => []),
+        getElementById: jest.fn(() => ({ addEventListener: jest.fn() })),
+        createElement: jest.fn(mockElement),
+        createTextNode: jest.fn(),
+        body: {
+            prepend: jest.fn(),
+            contains: jest.fn(() => true),
+            click: jest.fn(),
+        },
+        addEventListener: jest.fn(),
+    };
+
+    global.MutationObserver = class { observe() {} disconnect() {} };
+    global.location = { href: 'http://localhost' };
+    global.chrome = {
+        i18n: { getMessage: (key) => key },
+        runtime: { sendMessage: jest.fn(), lastError: null }
+    };
+
+    const utils = require('./src/utils.js');
+    global.el = utils.el;
+    global.debounce = utils.debounce;
+    global.isDescendant = utils.isDescendant;
+};
+
+const teardownGlobalMocks = () => {
+    delete global.window;
+    delete global.document;
+    delete global.MutationObserver;
+    delete global.location;
+    delete global.setTimeout;
+    delete global.clearTimeout;
+    delete global.chrome;
+    delete global.el;
+    delete global.debounce;
+    delete global.isDescendant;
+    delete global.queueMicrotask;
+};
+
 describe('areAllAncestorsEnabled', () => {
     let areAllAncestorsEnabled, parentMap, groupsById;
 
     beforeEach(() => {
         jest.resetModules();
-
-        global.window = { location: { pathname: '/notebook/testproject' } };
-        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
-        global.MutationObserver = class { observe() {} disconnect() {} };
-        global.location = { href: 'http://localhost' };
-        global.chrome = {
-            i18n: { getMessage: () => '' },
-            runtime: { sendMessage: jest.fn(), lastError: null }
-        };
+        setupGlobalMocks();
         global.setTimeout = jest.fn();
 
-        const utils = require('./src/utils.js');
-        global.el = utils.el;
-
         const mod = require('./content.js');
-
         areAllAncestorsEnabled = mod.areAllAncestorsEnabled;
         parentMap = mod.parentMap;
         groupsById = mod.groupsById;
@@ -26,14 +81,7 @@ describe('areAllAncestorsEnabled', () => {
         if (mod._resetState) mod._resetState();
     });
 
-    afterEach(() => {
-        delete global.window;
-        delete global.document;
-        delete global.MutationObserver;
-        delete global.location;
-        delete global.setTimeout;
-        delete global.chrome;
-    });
+    afterEach(teardownGlobalMocks);
 
     it('returns true if element has no parent', () => {
         expect(areAllAncestorsEnabled('child1')).toBe(true);
@@ -78,43 +126,9 @@ describe('executeBatchDelete', () => {
 
     beforeEach(() => {
         jest.resetModules();
-
-        global.window = { location: { pathname: '/notebook/testproject' } };
-        const mockBody = { contains: jest.fn(() => true), click: jest.fn() };
-        global.document = {
-            body: mockBody,
-            querySelector: jest.fn(() => null),
-            querySelectorAll: jest.fn(() => []),
-            createElement: jest.fn(() => {
-                const classList = {
-                    add: jest.fn(),
-                    remove: jest.fn()
-                };
-                return {
-                    className: '',
-                    textContent: '',
-                    classList,
-                    attachShadow: jest.fn(() => ({
-                        querySelector: jest.fn(() => null),
-                        appendChild: jest.fn()
-                    }))
-                };
-            })
-        };
-
-        global.MutationObserver = class { observe() {} disconnect() {} };
-        global.location = { href: 'http://localhost' };
-        global.chrome = {
-            i18n: { getMessage: (key) => key },
-            runtime: { sendMessage: jest.fn(), lastError: null }
-        };
+        setupGlobalMocks();
         global.setTimeout = (cb, ms) => cb();
         global.queueMicrotask = (cb) => { process.nextTick(cb); };
-
-        const utils = require('./src/utils.js');
-        global.el = utils.el;
-        global.debounce = utils.debounce;
-        global.isDescendant = utils.isDescendant;
 
         global.console.warn = jest.fn();
         global.console.error = jest.fn();
@@ -123,15 +137,7 @@ describe('executeBatchDelete', () => {
         if (mod._resetState) mod._resetState();
     });
 
-    afterEach(() => {
-        delete global.window;
-        delete global.document;
-        delete global.MutationObserver;
-        delete global.location;
-        delete global.setTimeout;
-        delete global.chrome;
-        delete global.queueMicrotask;
-    });
+    afterEach(teardownGlobalMocks);
 
     it('returns early if pendingBatchKeys is empty', async () => {
         mod.pendingBatchKeys.clear();
@@ -195,7 +201,9 @@ describe('executeBatchDelete', () => {
             querySelector: jest.fn(sel => {
                 if (mod.DEPS.moreBtn.includes(sel)) return mockMoreBtn;
                 return null;
-            })
+            }),
+            matches: jest.fn((sel) => mod.DEPS.row.includes(sel)),
+            closest: jest.fn((sel) => mod.DEPS.row.includes(sel) ? mockFreshRow : null),
         };
         const mockFreshCheckbox = {
             closest: jest.fn(() => mockFreshRow)
@@ -203,37 +211,16 @@ describe('executeBatchDelete', () => {
 
         const mockTitleEl = { textContent: 'Test Source' };
 
-        const mockRowElement = {
-            querySelector: jest.fn(s => {
-                if (mod.DEPS.title.includes(s)) return mockTitleEl;
-                if (mod.DEPS.checkbox.includes(s)) return mockFreshCheckbox;
-                if (mod.DEPS.moreBtn.includes(s)) return mockMoreBtn;
-                return null;
-            })
-        };
-
-        mockFreshCheckbox.closest = jest.fn((sel) => {
-            if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) {
-                return mockRowElement;
-            }
-            return null;
-        });
-
-        mockRowElement.matches = jest.fn((sel) => {
-           if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) return true;
-           return false;
-        });
-
-        mockRowElement.closest = jest.fn((sel) => {
-            if (sel === mod.DEPS.row[0] || sel === mod.DEPS.row[1]) {
-                return mockRowElement;
-            }
+        mockFreshRow.querySelector = jest.fn(s => {
+            if (mod.DEPS.title.includes(s)) return mockTitleEl;
+            if (mod.DEPS.checkbox.includes(s)) return mockFreshCheckbox;
+            if (mod.DEPS.moreBtn.includes(s)) return mockMoreBtn;
             return null;
         });
 
         global.document.querySelectorAll = jest.fn(sel => {
             if (mod.DEPS.row.includes(sel)) {
-                return [mockRowElement];
+                return [mockFreshRow];
             }
             if (sel.includes('[role="menuitem"]')) return [];
             return [];
@@ -306,36 +293,14 @@ describe('saveState', () => {
 
     beforeEach(() => {
         jest.resetModules();
-
-        // Setup DOM mock for content.js
-        global.window = { location: { pathname: '/notebook/testproject' } };
-        global.document = { querySelector: () => null, querySelectorAll: () => [], body: {}, createElement: () => ({ attachShadow: () => ({}) }) };
-        global.MutationObserver = class { observe() {} disconnect() {} };
-        global.location = { href: 'http://localhost' };
-        global.chrome = {
-            i18n: { getMessage: () => '' },
-            runtime: {
-                sendMessage: jest.fn(),
-                lastError: null
-            }
-        };
+        setupGlobalMocks();
 
         // Mock setTimeout to call the function synchronously so debounced functions run immediately
         global.setTimeout = (cb, ms) => cb();
         global.clearTimeout = jest.fn();
 
-        // Ensure util functions are attached to global
-        const utils = require('./src/utils.js');
-        global.el = utils.el;
         // Make debounce execute synchronously for tests
         global.debounce = (func) => (...args) => func(...args);
-        global.isDescendant = utils.isDescendant;
-        // Setup DOM mock
-        global.document = {
-            querySelectorAll: jest.fn(() => []),
-            querySelector: jest.fn(() => null),
-            createElement: jest.fn(() => ({ attachShadow: () => ({}) }))
-        };
 
         // Microtask queue processing control
         let queuedTask = null;
@@ -350,29 +315,11 @@ describe('saveState', () => {
             }
         };
 
-        // Prevent errors for missing globals
-        global.window = { location: { pathname: '/notebook/testproject' } };
-        global.MutationObserver = class { observe() {} disconnect() {} };
-        global.location = { href: 'http://localhost' };
-        global.chrome = {
-            i18n: { getMessage: (key) => key },
-            runtime: { sendMessage: jest.fn(), lastError: null }
-        };
-
         mod = require('./content.js');
         if (mod._resetState) mod._resetState();
     });
 
-    afterEach(() => {
-        delete global.window;
-        delete global.document;
-        delete global.MutationObserver;
-        delete global.location;
-        delete global.setTimeout;
-        delete global.clearTimeout;
-        delete global.chrome;
-        delete global.debounce;
-    });
+    afterEach(teardownGlobalMocks);
 
     it('returns early if projectId is missing', () => {
         if (mod._setProjectId) mod._setProjectId(null); else mod.projectId = null;
@@ -443,13 +390,6 @@ describe('saveState', () => {
         );
 
         consoleWarnSpy.mockRestore();
-        delete global.document;
-        delete global.queueMicrotask;
-        delete global.processMicrotasks;
-        delete global.window;
-        delete global.MutationObserver;
-        delete global.location;
-        delete global.chrome;
     });
 });
 
@@ -458,28 +398,7 @@ describe('findFreshCheckbox', () => {
 
     beforeEach(() => {
         jest.resetModules();
-
-        const utils = require('./src/utils.js');
-        global.el = utils.el;
-
-        global.document = {
-            querySelectorAll: jest.fn(() => []),
-            createElement: jest.fn(() => ({
-                appendChild: jest.fn(),
-                setAttribute: jest.fn(),
-                addEventListener: jest.fn(),
-                dataset: {},
-                classList: { add: jest.fn(), remove: jest.fn() },
-                attachShadow: jest.fn(() => ({ appendChild: jest.fn() }))
-            })),
-            createTextNode: jest.fn(),
-            getElementById: jest.fn(() => ({
-                addEventListener: jest.fn()
-            })),
-            body: { prepend: jest.fn() }
-        };
-        global.MutationObserver = class { observe() {} disconnect() {} };
-        global.location = { href: 'http://localhost' };
+        setupGlobalMocks();
 
         global.queueMicrotasks = [];
         global.queueMicrotask = jest.fn((cb) => {
@@ -491,21 +410,11 @@ describe('findFreshCheckbox', () => {
             tasks.forEach(cb => cb());
         };
 
-        global.window = { location: { pathname: '/notebook/123' } };
-
         mod = require('./content.js');
         mod._resetState();
     });
 
-    afterEach(() => {
-        delete global.document;
-        delete global.MutationObserver;
-        delete global.location;
-        delete global.queueMicrotask;
-        delete global.processMicrotasks;
-        delete global.queueMicrotasks;
-        delete global.window;
-    });
+    afterEach(teardownGlobalMocks);
 
     it('returns null if sourceKey is not found in sourcesByKey', () => {
         expect(mod.findFreshCheckbox('invalidKey')).toBeNull();
@@ -591,5 +500,56 @@ describe('findFreshCheckbox', () => {
 
         // Cache should be cleared
         expect(mod._getFreshRowCache()).toBeNull();
+    });
+});
+
+describe('removeGroupFromTree', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+
+        mod = require('./content.js');
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('removes a top-level group from state.groups', () => {
+        mod.state.groups = ['group1', 'group2', 'group3'];
+        mod.removeGroupFromTree('group2');
+        expect(mod.state.groups).toEqual(['group1', 'group3']);
+    });
+
+    it('removes a nested group from its parent children array', () => {
+        const parentGroup = { id: 'parent1', children: [{ id: 'child1' }, { id: 'child2' }] };
+        mod.groupsById.set('parent1', parentGroup);
+
+        mod.removeGroupFromTree('child1');
+
+        expect(parentGroup.children).toEqual([{ id: 'child2' }]);
+    });
+
+    it('removes a group from both state.groups and parent children if present in both', () => {
+        mod.state.groups = ['group1', 'orphanChild'];
+        const parentGroup = { id: 'parent1', children: [{ id: 'orphanChild' }, { id: 'other' }] };
+        mod.groupsById.set('parent1', parentGroup);
+
+        mod.removeGroupFromTree('orphanChild');
+
+        expect(mod.state.groups).toEqual(['group1']);
+        expect(parentGroup.children).toEqual([{ id: 'other' }]);
+    });
+
+    it('does nothing if group id is not found', () => {
+        mod.state.groups = ['group1'];
+        const parentGroup = { id: 'parent1', children: [{ id: 'child1' }] };
+        mod.groupsById.set('parent1', parentGroup);
+
+        mod.removeGroupFromTree('nonExistent');
+
+        expect(mod.state.groups).toEqual(['group1']);
+        expect(parentGroup.children).toEqual([{ id: 'child1' }]);
     });
 });
