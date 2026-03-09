@@ -846,7 +846,7 @@
         });
     }
 
-    function isDescendant(possibleChild, possibleParent) {
+    function isDescendant(possibleChild, possibleParent, groupsById) {
         if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
         let found = false;
         const visit = (g) => {
