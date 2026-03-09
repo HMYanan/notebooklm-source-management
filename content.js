@@ -186,6 +186,36 @@
         });
     }
 
+    function getEffectivelyEnabledSources() {
+        const effectivelyEnabled = new Map();
+        const visit = (g, ancestorsEnabled) => {
+            const currentEffectivelyEnabled = ancestorsEnabled && g.enabled;
+            for (const child of g.children) {
+                if (child.type === 'source') {
+                    const s = sourcesByKey.get(child.key);
+                    if (s && s.enabled && currentEffectivelyEnabled) {
+                        effectivelyEnabled.set(child.key, true);
+                    }
+                } else if (child.type === 'group') {
+                    const subGroup = groupsById.get(child.id);
+                    if (subGroup) visit(subGroup, currentEffectivelyEnabled);
+                }
+            }
+        };
+
+        state.groups.forEach(gid => {
+            const g = groupsById.get(gid);
+            if (g) visit(g, true);
+        });
+
+        state.ungrouped.forEach(key => {
+            const s = sourcesByKey.get(key);
+            if (s && s.enabled) effectivelyEnabled.set(key, true);
+        });
+
+        return effectivelyEnabled;
+    }
+
     function areAllAncestorsEnabled(keyOrId) {
         let parentId = parentMap.get(keyOrId);
         while (parentId) {
@@ -902,21 +932,22 @@
             return;
         }
         if (target.closest('.sp-isolate-button')) {
-            const oldStates = new Array(sourcesByKey.size);
-            let i = 0;
-            for (const s of sourcesByKey.values()) {
-                oldStates[i++] = isSourceEffectivelyEnabled(s);
-            }
+            const oldStates = getEffectivelyEnabledSources();
 
             groupsById.forEach(g => { g.enabled = (g.id === groupId); });
 
-            i = 0;
-            for (const s of sourcesByKey.values()) {
-                const newEffectiveState = isSourceEffectivelyEnabled(s);
-                if (oldStates[i++] !== newEffectiveState) {
-                    syncSourceToPage(s, newEffectiveState);
+            const newStates = getEffectivelyEnabledSources();
+
+            oldStates.forEach((_, key) => {
+                if (!newStates.has(key)) {
+                    syncSourceToPage(sourcesByKey.get(key), false);
                 }
-            }
+            });
+            newStates.forEach((_, key) => {
+                if (!oldStates.has(key)) {
+                    syncSourceToPage(sourcesByKey.get(key), true);
+                }
+            });
 
             render();
             saveState();
