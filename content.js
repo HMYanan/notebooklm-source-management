@@ -933,24 +933,21 @@
             return;
         }
         if (target.closest('.sp-isolate-button')) {
-            const allSourceKeys = Array.from(sourcesByKey.keys());
-            const oldEffectiveStates = new Map();
-            allSourceKeys.forEach(key => {
-                const s = sourcesByKey.get(key);
-                if (s) oldEffectiveStates.set(key, isSourceEffectivelyEnabled(s));
-            });
+            const oldStates = new Array(sourcesByKey.size);
+            let i = 0;
+            for (const s of sourcesByKey.values()) {
+                oldStates[i++] = isSourceEffectivelyEnabled(s);
+            }
 
             groupsById.forEach(g => { g.enabled = (g.id === groupId); });
 
-            allSourceKeys.forEach(key => {
-                const s = sourcesByKey.get(key);
-                if (s) {
-                    const newEffectiveState = isSourceEffectivelyEnabled(s);
-                    if (oldEffectiveStates.get(key) !== newEffectiveState) {
-                        syncSourceToPage(s, newEffectiveState);
-                    }
+            i = 0;
+            for (const s of sourcesByKey.values()) {
+                const newEffectiveState = isSourceEffectivelyEnabled(s);
+                if (oldStates[i++] !== newEffectiveState) {
+                    syncSourceToPage(s, newEffectiveState);
                 }
-            });
+            }
 
             render();
             saveState();
