@@ -8,6 +8,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.type === 'SAVE_STATE') {
+        // Security: Validate storage key to prevent arbitrary storage manipulation
+        if (typeof request.key !== 'string' || !request.key.startsWith('sourcesPlusState_')) {
+            console.warn('Sources+: Received SAVE_STATE with invalid key:', request.key);
+            sendResponse({ success: false, error: 'Invalid storage key' });
+            return;
+        }
+
         chrome.storage.local.set({ [request.key]: request.data }, () => {
             if (chrome.runtime.lastError) {
                 console.error("Sources+ background save error:", chrome.runtime.lastError);
@@ -20,6 +27,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.type === 'LOAD_STATE') {
+        // Security: Validate storage key
+        if (typeof request.key !== 'string' || !request.key.startsWith('sourcesPlusState_')) {
+            console.warn('Sources+: Received LOAD_STATE with invalid key:', request.key);
+            sendResponse({ success: false, error: 'Invalid storage key' });
+            return;
+        }
+
         chrome.storage.local.get(request.key, (data) => {
             sendResponse({ success: true, data: data[request.key] || null });
         });

@@ -73,24 +73,44 @@ describe('background.js message listener', () => {
     it('should handle SAVE_STATE message successfully', () => {
         const request = {
             type: 'SAVE_STATE',
-            key: 'myKey',
+            key: 'sourcesPlusState_123',
             data: { test: 123 }
         };
 
         const result = listener(request, validSender, mockSendResponse);
 
         expect(global.chrome.storage.local.set).toHaveBeenCalledWith(
-            { 'myKey': { test: 123 } },
+            { 'sourcesPlusState_123': { test: 123 } },
             expect.any(Function)
         );
         expect(mockSendResponse).toHaveBeenCalledWith({ success: true });
         expect(result).toBe(true); // Should return true to keep channel open
     });
 
+    it('should reject SAVE_STATE with invalid key', () => {
+        const request = {
+            type: 'SAVE_STATE',
+            key: 'invalidKey',
+            data: { test: 123 }
+        };
+
+        listener(request, validSender, mockSendResponse);
+
+        expect(global.chrome.storage.local.set).not.toHaveBeenCalled();
+        expect(console.warn).toHaveBeenCalledWith(
+            'Sources+: Received SAVE_STATE with invalid key:',
+            'invalidKey'
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            error: 'Invalid storage key'
+        });
+    });
+
     it('should handle SAVE_STATE error case', () => {
         const request = {
             type: 'SAVE_STATE',
-            key: 'myKey',
+            key: 'sourcesPlusState_123',
             data: { test: 123 }
         };
 
@@ -114,18 +134,18 @@ describe('background.js message listener', () => {
     it('should handle LOAD_STATE message successfully', () => {
         const request = {
             type: 'LOAD_STATE',
-            key: 'myKey'
+            key: 'sourcesPlusState_123'
         };
 
         // Mock get to return some data
         global.chrome.storage.local.get.mockImplementationOnce((key, cb) => {
-            cb({ 'myKey': { loadedData: true } });
+            cb({ 'sourcesPlusState_123': { loadedData: true } });
         });
 
         const result = listener(request, validSender, mockSendResponse);
 
         expect(global.chrome.storage.local.get).toHaveBeenCalledWith(
-            'myKey',
+            'sourcesPlusState_123',
             expect.any(Function)
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
@@ -135,10 +155,29 @@ describe('background.js message listener', () => {
         expect(result).toBe(true); // Should return true to keep channel open
     });
 
+    it('should reject LOAD_STATE with invalid key', () => {
+        const request = {
+            type: 'LOAD_STATE',
+            key: 'invalidKey'
+        };
+
+        listener(request, validSender, mockSendResponse);
+
+        expect(global.chrome.storage.local.get).not.toHaveBeenCalled();
+        expect(console.warn).toHaveBeenCalledWith(
+            'Sources+: Received LOAD_STATE with invalid key:',
+            'invalidKey'
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            error: 'Invalid storage key'
+        });
+    });
+
     it('should handle LOAD_STATE message returning null when data not found', () => {
         const request = {
             type: 'LOAD_STATE',
-            key: 'myKey'
+            key: 'sourcesPlusState_123'
         };
 
         // Mock get to return empty object
