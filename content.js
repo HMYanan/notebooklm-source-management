@@ -2697,6 +2697,7 @@
         module.exports = {
             areAllAncestorsEnabled,
             findFreshCheckbox,
+            removeGroupFromTree,
             parentMap,
             groupsById,
             executeBatchDelete,
