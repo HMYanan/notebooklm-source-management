@@ -67,7 +67,7 @@ global.document = {
     createTextNode: (text) => new TextNode(text)
 };
 
-const { el, isDescendant } = require('./src/utils');
+const { el, isDescendant } = require('../src/utils/index');
 
 describe('el function', () => {
     test('creates an element with tag name', () => {

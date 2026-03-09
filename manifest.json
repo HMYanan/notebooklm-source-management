@@ -15,7 +15,7 @@
     "storage"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "src/background/index.js"
   },
   "content_scripts": [
     {
@@ -23,11 +23,11 @@
         "https://notebooklm.google.com/notebook/*"
       ],
       "js": [
-        "src/utils.js",
-        "content.js"
+        "src/utils/index.js",
+        "src/content/index.js"
       ],
       "css": [
-        "styles.css"
+        "src/content/styles.css"
       ],
       "run_at": "document_idle"
     }

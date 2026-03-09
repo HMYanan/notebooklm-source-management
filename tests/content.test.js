@@ -45,7 +45,7 @@ const setupGlobalMocks = () => {
         runtime: { sendMessage: jest.fn(), lastError: null }
     };
 
-    const utils = require('./src/utils.js');
+    const utils = require('../src/utils/index.js');
     global.el = utils.el;
     global.debounce = utils.debounce;
     global.isDescendant = utils.isDescendant;
@@ -73,7 +73,7 @@ describe('areAllAncestorsEnabled', () => {
         setupGlobalMocks();
         global.setTimeout = jest.fn();
 
-        const mod = require('./content.js');
+        const mod = require('../src/content/index.js');
         areAllAncestorsEnabled = mod.areAllAncestorsEnabled;
         parentMap = mod.parentMap;
         groupsById = mod.groupsById;
@@ -133,7 +133,7 @@ describe('executeBatchDelete', () => {
         global.console.warn = jest.fn();
         global.console.error = jest.fn();
 
-        mod = require('./content.js');
+        mod = require('../src/content/index.js');
         if (mod._resetState) mod._resetState();
     });
 
@@ -315,7 +315,7 @@ describe('saveState', () => {
             }
         };
 
-        mod = require('./content.js');
+        mod = require('../src/content/index.js');
         if (mod._resetState) mod._resetState();
     });
 
@@ -410,7 +410,7 @@ describe('findFreshCheckbox', () => {
             tasks.forEach(cb => cb());
         };
 
-        mod = require('./content.js');
+        mod = require('../src/content/index.js');
         mod._resetState();
     });
 
@@ -510,7 +510,7 @@ describe('removeGroupFromTree', () => {
         jest.resetModules();
         setupGlobalMocks();
 
-        mod = require('./content.js');
+        mod = require('../src/content/index.js');
         mod._resetState();
     });
 

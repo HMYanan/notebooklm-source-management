@@ -38,7 +38,7 @@ describe('background.js message listener', () => {
         // Load the background script. This should trigger addListener.
         // We isolate the module so it evaluates the addListener each time.
         jest.isolateModules(() => {
-            require('./background.js');
+            require('../src/background/index.js');
         });
     });
 
