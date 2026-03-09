@@ -848,18 +848,17 @@
 
     function isDescendant(possibleChild, possibleParent) {
         if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
-        let found = false;
         const visit = (g) => {
-            if (!g || found) return;
-            g.children.forEach(c => {
+            if (!g) return false;
+            return g.children.some(c => {
                 if (c.type === 'group') {
-                    if (c.id === possibleChild.id) found = true;
-                    visit(groupsById.get(c.id));
+                    if (c.id === possibleChild.id) return true;
+                    return visit(groupsById.get(c.id));
                 }
+                return false;
             });
         };
-        visit(possibleParent);
-        return found;
+        return visit(possibleParent);
     }
 
     function handleInteraction(event) {
