@@ -108,6 +108,7 @@
         return `source_${hash}`;
     }
 
+    let toastTimeout = null;
     function showToast(message) {
         let toast = shadowRoot.querySelector('.sp-toast');
         if (!toast) {
@@ -116,8 +117,14 @@
             shadowRoot.appendChild(toast);
         }
         toast.textContent = message;
+        
+        // Force reflow to restart animation if needed
+        toast.classList.remove('show');
+        void toast.offsetWidth; 
         toast.classList.add('show');
-        setTimeout(() => {
+        
+        if (toastTimeout) clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {
             toast.classList.remove('show');
         }, 3000);
     }
@@ -779,7 +786,7 @@
                         el('span', { className: 'sp-toggle-slider' })
                     ]) : '',
                     el('span', { className: 'group-title' }, ['📁 ' + group.title]),
-                    el('span', { className: 'badge' }, [`(${on}/${total})`]),
+                    el('span', { className: 'badge' }, [` ${on} / ${total} `]),
                     el('button', { className: 'sp-add-subgroup-button', title: chrome.i18n.getMessage("ui_add_subgroup") }, [el('span', { className: 'google-symbols' }, ['create_new_folder'])]),
                     el('button', { className: 'sp-isolate-button', title: chrome.i18n.getMessage("ui_isolate_group") }, [el('span', { className: 'google-symbols' }, ['filter_center_focus'])]),
                     el('button', { className: 'sp-edit-button', title: chrome.i18n.getMessage("ui_rename") }, [el('span', { className: 'google-symbols' }, ['edit'])]),
@@ -1072,7 +1079,7 @@
                     if (groupObj) {
                         const { on, total } = getGroupEffectiveState(groupObj);
                         const badgeEl = shadowRoot.querySelector(`[data-group-id="${groupObj.id}"] .badge`);
-                        if (badgeEl) badgeEl.textContent = `(${on}/${total})`;
+                        if (badgeEl) badgeEl.textContent = ` ${on} / ${total} `;
                     }
                 }
             }
@@ -1151,7 +1158,7 @@
                     if (groupObj) {
                         const { on, total } = getGroupEffectiveState(groupObj);
                         const badgeEl = shadowRoot.querySelector(`[data-group-id="${groupObj.id}"] .badge`);
-                        if (badgeEl) badgeEl.textContent = `(${on}/${total})`;
+                        if (badgeEl) badgeEl.textContent = ` ${on} / ${total} `;
                     }
                 }
             }
@@ -1293,7 +1300,7 @@
                 if (groupObj) {
                     const { on, total } = getGroupEffectiveState(groupObj);
                     const badgeEl = shadowRoot.querySelector(`[data-group-id="${groupObj.id}"] .badge`);
-                    if (badgeEl) badgeEl.textContent = `(${on}/${total})`;
+                    if (badgeEl) badgeEl.textContent = ` ${on} / ${total} `;
                 }
                 saveState();
             }
@@ -2525,10 +2532,14 @@
             .sp-toggle-switch {
                 position: relative;
                 display: inline-block;
-                width: 32px;
-                height: 18px;
+                width: 36px;
+                height: 20px;
                 margin: 0 8px 0 2px;
                 flex-shrink: 0;
+                transform: scale(0.9);
+            }
+            .sp-toggle-switch:hover .sp-toggle-slider {
+                box-shadow: inset 0 0 0 1px var(--sp-border-medium);
             }
 
             .sp-toggle-switch .sp-group-toggle-checkbox {
@@ -2553,8 +2564,8 @@
             .sp-toggle-slider:before {
                 position: absolute;
                 content: "";
-                height: 14px;
-                width: 14px;
+                height: 16px;
+                width: 16px;
                 left: 2px;
                 bottom: 2px;
                 background-color: var(--sp-bg-switch-thumb);
@@ -2569,7 +2580,7 @@
             }
 
             .sp-group-toggle-checkbox:checked + .sp-toggle-slider:before {
-                transform: translateX(14px);
+                transform: translateX(16px);
             }
             
             /* --- Batch Mode Additions --- */
