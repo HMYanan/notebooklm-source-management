@@ -440,7 +440,7 @@
         if (!shadowRoot) return;
 
         // Normalize single key to array for unified processing
-        const keys = Array.isArray(sourceKeys) ? sourceKeys : Array.from(sourceKeys);
+        const keys = Array.isArray(sourceKeys) ? sourceKeys : (typeof sourceKeys === 'string' ? [sourceKeys] : Array.from(sourceKeys));
         if (keys.length === 0) return;
 
         // Cleanup existing modal if any
@@ -532,7 +532,7 @@
             return;
         }
 
-        const keys = Array.isArray(sourceKeys) ? sourceKeys : Array.from(sourceKeys);
+        const keys = Array.isArray(sourceKeys) ? sourceKeys : (typeof sourceKeys === 'string' ? [sourceKeys] : Array.from(sourceKeys));
 
         keys.forEach(sourceKey => {
             const sourceData = sourcesByKey.get(sourceKey);
