@@ -1494,9 +1494,25 @@
             
             let iconEl = findElement(DEPS.icon, el);
             let iconName = iconEl?.textContent.trim() || 'article';
-            if (iconName === 'more_vert') {
-                iconName = 'article';
-                iconEl = null;
+            
+            // Map unsupported or missing icons to valid Google Symbols
+            const iconMap = {
+                'video_youtube': 'smart_display',
+                'more_vert': 'article', // Prevent grabbing the wrong icon
+                'audiotrack': 'headphones',
+                'picture_as_pdf': 'description',
+                'drive_pdf': 'description',
+                'link': 'link',
+                'format_quote': 'format_quote',
+                'text_snippet': 'article',
+                'note': 'sticky_note_2'
+            };
+            
+            if (iconMap[iconName]) {
+                iconName = iconMap[iconName];
+                if (iconName === 'article' && iconEl?.textContent.trim() === 'more_vert') {
+                    iconEl = null;
+                }
             }
             const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
             
@@ -2652,6 +2668,56 @@
             }
             .sp-icon-button:active {
                 transform: scale(0.85);
+            }
+
+
+            /* =========================================
+               UI Polish Part 3: Typography & Layout
+               ========================================= */
+
+            /* 1. Sticky Controls with Glassmorphism */
+            .sp-controls {
+                position: sticky;
+                top: 0;
+                z-index: 20;
+                background: var(--sp-glass-bg-body, rgba(255, 255, 255, 0.85));
+                backdrop-filter: blur(24px) saturate(180%);
+                -webkit-backdrop-filter: blur(24px) saturate(180%);
+                padding-bottom: 8px;
+                margin-bottom: 4px;
+                border-bottom: 1px solid transparent;
+                transition: border-color 0.3s ease;
+            }
+            /* Add a subtle border when scrolling */
+            #sources-list:not(:empty) {
+                padding-top: 4px;
+            }
+
+            /* 2. Advanced Typography & Line Clamp */
+            .title-container, .group-title {
+                /* Replace single line ellipsis with up to 2 lines */
+                white-space: normal;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                line-height: 1.4;
+                margin-right: 4px;
+            }
+            .group-name {
+                font-weight: 500;
+                letter-spacing: 0.1px;
+            }
+            
+            /* 3. Enhanced Modal Depth (Material 3) */
+            .sp-folder-modal {
+                box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0,0,0,0.1);
+                transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
+            }
+            @media (prefers-color-scheme: dark) {
+                .sp-folder-modal {
+                    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255,255,255,0.1);
+                }
             }
 
             .sp-cancel-batch-btn {
