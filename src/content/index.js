@@ -2612,6 +2612,92 @@
                 background: transparent;
                 border: 1px solid var(--sp-border-light);
             }
+
+            /* =========================================
+               UI Polish & Enhancements
+               ========================================= */
+
+            /* 1. Custom Webkit Scrollbar */
+            #sources-list::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            #sources-list::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            #sources-list::-webkit-scrollbar-thumb {
+                background: rgba(150, 150, 150, 0.3);
+                border-radius: 10px;
+            }
+            #sources-list::-webkit-scrollbar-thumb:hover {
+                background: rgba(150, 150, 150, 0.6);
+            }
+
+            /* 2. Tree-view Hierarchy Lines & Item Styling */
+            .source-item {
+                border-radius: 8px;
+                margin-bottom: 2px;
+                transition: background-color 0.2s ease, transform 0.2s ease;
+            }
+            .source-item:hover {
+                background-color: var(--sp-bg-hover);
+            }
+            .group-children {
+                border-left: 2px solid var(--sp-border-light) !important;
+                border-radius: 0 0 0 6px;
+                transition: border-color 0.3s ease, height 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease;
+            }
+            .group-container:hover > .group-children {
+                border-left-color: var(--sp-accent) !important;
+            }
+
+            /* 3. Micro-interactions & Focus Rings */
+            #sp-search {
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            #sp-search:focus {
+                outline: none;
+                border-color: var(--sp-accent);
+                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15); /* Apple style focus ring */
+            }
+            #sp-search:focus + #sp-search-btn .google-symbols {
+                color: var(--sp-accent);
+            }
+            
+            /* Enhanced Drag Feedback */
+            .drag-over-top {
+                border-top: 2px solid var(--sp-accent) !important;
+                position: relative;
+            }
+            .drag-over-top::before {
+                content: '';
+                position: absolute;
+                top: -5px;
+                left: -5px;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background-color: var(--sp-accent);
+                border: 2px solid var(--sp-bg-primary, white);
+                z-index: 10;
+            }
+            
+            .drag-over-bottom {
+                border-bottom: 2px solid var(--sp-accent) !important;
+                position: relative;
+            }
+            .drag-over-bottom::after {
+                content: '';
+                position: absolute;
+                bottom: -5px;
+                left: -5px;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background-color: var(--sp-accent);
+                border: 2px solid var(--sp-bg-primary, white);
+                z-index: 10;
+            }
         `;
         shadowRoot.appendChild(style);
 
