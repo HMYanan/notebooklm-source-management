@@ -2097,14 +2097,20 @@
                 font-size: 16px;
             }
             .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
-                display: none;
+                display: flex;
+                opacity: 0;
+                transform: translateX(10px) scale(0.9);
+                pointer-events: none;
+                transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
                 margin-left: 2px;
             }
             .sp-more-button, .sp-move-to-folder-button {
                 margin-left: 2px;
             }
             .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button {
-                display: flex;
+                opacity: 1;
+                transform: translateX(0) scale(1);
+                pointer-events: auto;
             }
             .group-title + .badge {
                 margin-left: auto;
@@ -2608,6 +2614,46 @@
                 opacity: 0.5;
                 cursor: not-allowed;
             }
+
+            /* =========================================
+               UI Polish Part 2
+               ========================================= */
+
+            /* 1. Empty Drop Zone Styling */
+            .sp-empty-state {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 16px;
+                margin: 4px 8px 8px 18px;
+                border: 2px dashed var(--sp-border-medium);
+                border-radius: 12px;
+                color: var(--sp-text-secondary);
+                font-size: 13px;
+                font-weight: 500;
+                background-color: rgba(0, 0, 0, 0.01);
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            @media (prefers-color-scheme: dark) {
+                .sp-empty-state {
+                    background-color: rgba(255, 255, 255, 0.01);
+                }
+            }
+            .group-container.drag-into > .group-children > .sp-empty-state {
+                background-color: var(--sp-drag-into-bg);
+                border-color: var(--sp-accent);
+                color: var(--sp-accent);
+                transform: scale(1.02);
+            }
+            
+            /* 2. Global Icon Button Click Feedback */
+            .sp-icon-button {
+                transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-icon-button:active {
+                transform: scale(0.85);
+            }
+
             .sp-cancel-batch-btn {
                 background: transparent;
                 border: 1px solid var(--sp-border-light);
