@@ -9,7 +9,7 @@
         title: ['[data-testid="source-title"]', '.source-title'],
         checkbox: ['input[type="checkbox"]', '.select-checkbox input[type="checkbox"]'],
         moreBtn: ['[aria-label="More options"]', '.source-item-more-button'],
-        icon: ['mat-icon[class*="-icon-color"]', 'mat-icon']
+        icon: ['mat-icon[class*="-icon-color"]', 'mat-icon:not([aria-label="More options"] mat-icon):not(button mat-icon)']
     };
     // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
     const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
@@ -98,18 +98,14 @@
         return null;
     }
 
-    function generateSourceKey(title, index) {
+    function generateSourceKey(title) {
         let hash = 0;
         for (let i = 0; i < title.length; i++) {
             const char = title.charCodeAt(i);
             hash = ((hash << 5) - hash) + char;
             hash |= 0;
         }
-        const baseKey = `source_${hash}`;
-        if (sourcesByKey.has(baseKey)) {
-            return `${baseKey}_${index}`;
-        }
-        return baseKey;
+        return `source_${hash}`;
     }
 
     function showToast(message) {
@@ -589,6 +585,76 @@
         return { on, total };
     }
 
+    // --- DOM Diffing Helpers ---
+    function patchNode(target, source) {
+        if (target.nodeType !== source.nodeType) {
+            target.parentNode.replaceChild(source.cloneNode(true), target);
+            return;
+        }
+        if (target.nodeType === Node.TEXT_NODE) {
+            if (target.textContent !== source.textContent) {
+                target.textContent = source.textContent;
+            }
+            return;
+        }
+        if (target.nodeName !== source.nodeName) {
+            target.parentNode.replaceChild(source.cloneNode(true), target);
+            return;
+        }
+        
+        const targetAttrs = target.attributes;
+        const sourceAttrs = source.attributes;
+        for (let i = targetAttrs.length - 1; i >= 0; i--) {
+            const name = targetAttrs[i].name;
+            if (!source.hasAttribute(name)) {
+                target.removeAttribute(name);
+            }
+        }
+        for (let i = 0; i < sourceAttrs.length; i++) {
+            const name = sourceAttrs[i].name;
+            const value = sourceAttrs[i].value;
+            if (target.getAttribute(name) !== value) {
+                target.setAttribute(name, value);
+            }
+        }
+        
+        if (target.tagName === 'INPUT') {
+            if (target.checked !== source.checked) target.checked = source.checked;
+            if (target.value !== source.value) target.value = source.value;
+            if (target.disabled !== source.disabled) target.disabled = source.disabled;
+        }
+        
+        const targetChildren = Array.from(target.childNodes);
+        const sourceChildren = Array.from(source.childNodes);
+        const maxLength = Math.max(targetChildren.length, sourceChildren.length);
+        
+        for (let i = 0; i < maxLength; i++) {
+            if (i >= targetChildren.length) {
+                target.appendChild(sourceChildren[i].cloneNode(true));
+            } else if (i >= sourceChildren.length) {
+                target.removeChild(targetChildren[i]);
+            } else {
+                patchNode(targetChildren[i], sourceChildren[i]);
+            }
+        }
+    }
+
+    function patchChildren(target, sourceFragment) {
+        const targetChildren = Array.from(target.childNodes);
+        const sourceChildren = Array.from(sourceFragment.childNodes);
+        const maxLength = Math.max(targetChildren.length, sourceChildren.length);
+        
+        for (let i = 0; i < maxLength; i++) {
+            if (i >= targetChildren.length) {
+                target.appendChild(sourceChildren[i].cloneNode(true));
+            } else if (i >= sourceChildren.length) {
+                target.removeChild(targetChildren[i]);
+            } else {
+                patchNode(targetChildren[i], sourceChildren[i]);
+            }
+        }
+    }
+
     function render() {
         if (!shadowRoot) return;
         const listContainer = shadowRoot.querySelector('#sources-list');
@@ -633,10 +699,10 @@
                 dataset: { sourceKey: source.key },
                 title: titleAttr
             }, [
-                el('div', { className: 'icon-container ' + (source.iconColorClass || 'icon-color') }, [
+                el('div', { className: 'icon-container' }, [
                     isLoading ?
                         el('div', { className: 'sp-spinner' }) :
-                        el('span', { className: 'google-symbols' }, [isFailed ? 'error' : source.iconName])
+                        el('mat-icon', { className: `${source.iconColorClass || 'icon-color'} mat-icon google-symbols` }, [isFailed ? 'error' : source.iconName])
                 ]),
                 el('div', { className: 'menu-container' }, [
                     // Only show standard options buttons when not in delete mode AND not loading
@@ -775,7 +841,7 @@
             fragment.appendChild(actionBar);
         }
 
-        listContainer.replaceChildren(fragment);
+        patchChildren(listContainer, fragment);
     }
 
     // --- Action & Event Handlers ---
@@ -1417,16 +1483,27 @@
             // Suppressed console.warn to keep extension log clean.
         }
 
-        Array.from(sourceElements).forEach((el, index) => {
+        const seenTitlesCount = new Map();
+
+        Array.from(sourceElements).forEach((el) => {
             const titleEl = findElement(DEPS.title, el);
             const checkbox = findElement(DEPS.checkbox, el);
             const label = checkbox ? checkbox.getAttribute('aria-label') : '';
             const keyTitle = label || titleEl?.textContent || '';
             const title = titleEl?.textContent.trim() || 'Untitled Source';
-            const iconEl = findElement(DEPS.icon, el);
-            const iconName = iconEl?.textContent.trim() || 'article';
+            
+            let iconEl = findElement(DEPS.icon, el);
+            let iconName = iconEl?.textContent.trim() || 'article';
+            if (iconName === 'more_vert') {
+                iconName = 'article';
+                iconEl = null;
+            }
             const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
-            const key = generateSourceKey(keyTitle, index);
+            
+            const baseKey = generateSourceKey(keyTitle);
+            const count = seenTitlesCount.get(baseKey) || 0;
+            seenTitlesCount.set(baseKey, count + 1);
+            const key = count === 0 ? baseKey : `${baseKey}_${count}`;
 
             // Heuristic to detect if a source is currently loading
             // NotebookLM uses role="progressbar" or mat-spinner when loading a document
@@ -1471,8 +1548,28 @@
         try {
             let needsReSync = false;
             for (const mutation of mutations) {
-                if (mutation.type === 'childList' || mutation.type === 'characterData') {
-                    needsReSync = true; break;
+                // Ignore mutations happening inside our own extension container to prevent infinite loops
+                if (mutation.target && (mutation.target.id === 'sources-plus-root' || mutation.target.closest('#sources-plus-root'))) {
+                    continue;
+                }
+                
+                // We only care about nodes being added/removed in the native list
+                if (mutation.type === 'childList') {
+                    // Quick heuristic: did native rows change?
+                    const addedNodes = Array.from(mutation.addedNodes);
+                    const removedNodes = Array.from(mutation.removedNodes);
+                    const hasRelevantChanges = [...addedNodes, ...removedNodes].some(node => {
+                        return node.nodeType === 1 && (
+                            node.hasAttribute('data-testid') || 
+                            node.classList.contains('single-source-container') ||
+                            node.querySelector('.single-source-container')
+                        );
+                    });
+                    
+                    if (hasRelevantChanges) {
+                        needsReSync = true; 
+                        break;
+                    }
                 }
             }
             if (needsReSync) {
@@ -2651,46 +2748,19 @@
                 document.head.appendChild(globalStyle);
             }
 
-            // 1. DOM Observation Escalation: Observe the entire sourcePanel instead of just scrollArea
+            // 1. Precise DOM Observation
             scrollObserver = new MutationObserver(handleDomChanges);
             try {
-                // EXCLUDED characterData to reduce useless rapid firing callbacks during typing or loading spinners
-                scrollObserver.observe(sourcePanel, { childList: true, subtree: true });
+                // Find the native scroll area that holds the sources, rather than observing the entire panel
+                const nativeScrollArea = findElement(DEPS.scroll, sourcePanel) || sourcePanel;
+                // Only observe childList additions/removals, ignore deep attribute/text changes
+                scrollObserver.observe(nativeScrollArea, { childList: true, subtree: true });
             } catch (e) {
                 console.error("Sources+: Failed to observe source panel", e);
             }
 
-            // 2. Lightweight Synchronization Heartbeat: Adaptive Backoff Polling
-            let currentHeartbeatInterval = 2500;
-            const maxHeartbeatInterval = 10000;
-
-            const runHeartbeat = () => {
-                // If we are currently actively manipulating checkboxes, skip the heartbeat and keep rate fast
-                if (isSyncingState || isProcessingQueue) {
-                    currentHeartbeatInterval = 2500;
-                    healthCheckInterval = setTimeout(runHeartbeat, currentHeartbeatInterval);
-                    return;
-                }
-
-                const currentElements = queryAllElements(DEPS.row);
-                const nativeCount = currentElements.length;
-                const trackedCount = sourcesByKey.size;
-
-                if (nativeCount !== trackedCount && nativeCount > 0) {
-                    debouncedScanAndSync();
-                    // Reset interval on detection of out of sync state
-                    currentHeartbeatInterval = 2500;
-                } else {
-                    // Backoff smoothly if nothing changes
-                    currentHeartbeatInterval = Math.min(currentHeartbeatInterval + 1000, maxHeartbeatInterval);
-                }
-
-                // Recursively set timeout to act as an adaptable interval
-                healthCheckInterval = setTimeout(runHeartbeat, currentHeartbeatInterval);
-            };
-
-            // Start the heartbeat
-            healthCheckInterval = setTimeout(runHeartbeat, currentHeartbeatInterval);
+            // 2. Removed CPU-intensive Heartbeat Polling
+            // Relying purely on MutationObserver is much more efficient.
 
             loadState((loadedEnabledMap) => { scanAndSyncSources(loadedEnabledMap, true); render(); });
         } else {
