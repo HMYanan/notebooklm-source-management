@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "short_name": "__MSG_extShortName__",
-  "version": "2.3.0",
+  "version": "2.6.1",
   "description": "__MSG_extDesc__",
   "default_locale": "en",
   "icons": {
@@ -12,15 +12,20 @@
     "128": "src/assets/icons/icon128.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "tabs"
   ],
+  "action": {
+    "default_title": "__MSG_actionTitle__",
+    "default_popup": "src/popup/popup.html"
+  },
   "background": {
     "service_worker": "src/background/index.js"
   },
   "content_scripts": [
     {
       "matches": [
-        "https://notebooklm.google.com/notebook/*"
+        "https://notebooklm.google.com/*"
       ],
       "js": [
         "src/utils/index.js",

@@ -1,7 +1,12 @@
 global.Node = class {};
 
 const setupGlobalMocks = () => {
-    global.window = { location: { pathname: '/notebook/testproject' } };
+    global.window = {
+        location: {
+            pathname: '/notebook/testproject',
+            reload: jest.fn()
+        }
+    };
 
     const mockElement = () => ({
         attachShadow: jest.fn(() => ({
@@ -36,13 +41,18 @@ const setupGlobalMocks = () => {
             click: jest.fn(),
         },
         addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
     };
 
     global.MutationObserver = class { observe() {} disconnect() {} };
     global.location = { href: 'http://localhost' };
     global.chrome = {
         i18n: { getMessage: (key) => key },
-        runtime: { sendMessage: jest.fn(), lastError: null }
+        runtime: {
+            sendMessage: jest.fn(),
+            lastError: null,
+            onMessage: { addListener: jest.fn() }
+        }
     };
 
     const utils = require('../src/utils/index.js');
@@ -385,7 +395,7 @@ describe('saveState', () => {
         expect(() => mod.saveState()).not.toThrow();
         jest.runAllTimers();
         expect(consoleWarnSpy).toHaveBeenCalledWith(
-            "Sources+: Context invalidated. Please refresh the page.",
+            "NotebookLM Source Management: Context invalidated. Please refresh the page.",
             expect.any(Error)
         );
 
@@ -551,5 +561,121 @@ describe('removeGroupFromTree', () => {
 
         expect(mod.state.groups).toEqual(['group1']);
         expect(parentGroup.children).toEqual([{ id: 'child1' }]);
+    });
+});
+
+describe('manager launcher messaging', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+        global.setTimeout = jest.fn(() => 1);
+        global.clearTimeout = jest.fn();
+
+        mod = require('../src/content/index.js');
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('reports source_panel_missing when the notebook UI is unavailable', () => {
+        mod._setProjectId('test-project');
+        global.document.querySelector = jest.fn(() => null);
+
+        expect(mod.getManagerStatus()).toEqual({
+            ready: false,
+            reason: 'source_panel_missing'
+        });
+    });
+
+    it('returns ready and focuses the manager when the injected panel exists', () => {
+        const mockContainer = {
+            classList: {
+                add: jest.fn(),
+                remove: jest.fn()
+            },
+            offsetWidth: 120
+        };
+        const mockHost = {
+            isConnected: true,
+            scrollIntoView: jest.fn()
+        };
+        const mockShadowRoot = {
+            host: mockHost,
+            querySelector: jest.fn((selector) => selector === '.sp-container' ? mockContainer : null)
+        };
+
+        mod._setProjectId('test-project');
+        mod._setShadowRootForTest(mockShadowRoot);
+
+        expect(mod.getManagerStatus()).toEqual({
+            ready: true,
+            reason: 'ready'
+        });
+
+        expect(mod.focusManagerPanel()).toEqual({ success: true });
+        expect(mockHost.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+        expect(mockContainer.classList.add).toHaveBeenCalledWith('sp-focus-ring');
+    });
+
+    it('routes runtime messages for popup status and focus requests', () => {
+        const sendResponse = jest.fn();
+        mod._setProjectId('test-project');
+
+        mod.handleManagerMessage({ type: 'GET_MANAGER_STATUS' }, {}, sendResponse);
+        expect(sendResponse).toHaveBeenCalledWith({
+            ready: false,
+            reason: 'source_panel_missing'
+        });
+
+        sendResponse.mockClear();
+        mod.handleManagerMessage({ type: 'FOCUS_MANAGER' }, {}, sendResponse);
+        expect(sendResponse).toHaveBeenCalledWith({
+            success: false,
+            reason: 'source_panel_missing'
+        });
+    });
+
+    it('auto refreshes when the user enters a notebook route through SPA navigation', () => {
+        mod._setProjectId(null);
+        global.window.location.pathname = '/notebook/fresh-project';
+
+        mod.handleRouteChanged();
+
+        expect(global.window.location.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('auto refreshes when the user switches between notebook routes', () => {
+        mod._setProjectId('old-project');
+        global.window.location.pathname = '/notebook/new-project';
+
+        mod.handleRouteChanged();
+
+        expect(global.window.location.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('tears down without reloading when the user leaves a notebook route', () => {
+        const mockHost = {
+            isConnected: true,
+            remove: jest.fn()
+        };
+        const mockShadowRoot = {
+            host: mockHost,
+            querySelector: jest.fn(() => null)
+        };
+
+        mod._setProjectId('old-project');
+        mod._setShadowRootForTest(mockShadowRoot);
+        global.window.location.pathname = '/home';
+
+        mod.handleRouteChanged();
+
+        expect(global.window.location.reload).not.toHaveBeenCalled();
+        expect(mockHost.remove).toHaveBeenCalled();
+        expect(mod.getManagerStatus()).toEqual({
+            ready: false,
+            reason: 'not_on_notebook_page'
+        });
     });
 });

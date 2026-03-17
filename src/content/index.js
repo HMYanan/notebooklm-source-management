@@ -38,6 +38,9 @@
     let customHeight = null; // Store user defined height
     let scrollObserver = null; // Store MutationObserver globally for teardown
     let healthCheckInterval = null; // Store heartbeat interval for teardown
+    let extensionHost = null;
+    let managerStatusReason = 'manager_not_ready';
+    let focusHighlightTimeout = null;
 
     // --- Helper Functions ---
 
@@ -148,6 +151,71 @@
 
         document.body.prepend(banner);
         document.getElementById('sp-dismiss-error').addEventListener('click', () => banner.remove());
+    }
+
+    function getManagerStatus() {
+        const isReady = Boolean(
+            shadowRoot &&
+            shadowRoot.host &&
+            shadowRoot.host.isConnected &&
+            shadowRoot.querySelector('.sp-container')
+        );
+
+        if (isReady) {
+            managerStatusReason = 'ready';
+            return { ready: true, reason: 'ready' };
+        }
+
+        if (!projectId) {
+            managerStatusReason = 'not_on_notebook_page';
+            return { ready: false, reason: 'not_on_notebook_page' };
+        }
+
+        if (!findElement(DEPS.panel)) {
+            managerStatusReason = 'source_panel_missing';
+            return { ready: false, reason: 'source_panel_missing' };
+        }
+
+        return { ready: false, reason: managerStatusReason || 'manager_not_ready' };
+    }
+
+    function focusManagerPanel() {
+        const status = getManagerStatus();
+        if (!status.ready) {
+            return { success: false, reason: status.reason };
+        }
+
+        const container = shadowRoot.querySelector('.sp-container');
+        shadowRoot.host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        container.classList.remove('sp-focus-ring');
+        void container.offsetWidth;
+        container.classList.add('sp-focus-ring');
+
+        if (focusHighlightTimeout) {
+            clearTimeout(focusHighlightTimeout);
+        }
+
+        focusHighlightTimeout = setTimeout(() => {
+            if (container && container.classList) {
+                container.classList.remove('sp-focus-ring');
+            }
+        }, 1800);
+
+        return { success: true };
+    }
+
+    function handleManagerMessage(request, sender, sendResponse) {
+        if (!request || typeof request.type !== 'string') return;
+
+        if (request.type === 'GET_MANAGER_STATUS') {
+            sendResponse(getManagerStatus());
+            return;
+        }
+
+        if (request.type === 'FOCUS_MANAGER') {
+            sendResponse(focusManagerPanel());
+        }
     }
 
     let freshRowCache = null;
@@ -343,7 +411,7 @@
                         // Limit delay to 50ms for hyper-fast batch delete visual effect while still allowing DOM tear down
                         await new Promise(resolve => setTimeout(resolve, 50));
                     } else {
-                        console.warn(`Sources+: Could not find confirmation button in dialog for source key: ${key}`);
+                        console.warn(`NotebookLM Source Management: Could not find confirmation button in dialog for source key: ${key}`);
                         // Try to close dialog by clicking escape or backdrop if possible, fallback to body click
                         document.body.click();
                     }
@@ -351,10 +419,10 @@
                 } else {
                     // Close menu if delete button wasn't found (safety)
                     document.body.click();
-                    console.warn(`Sources+: Could not find delete menu item for source key: ${key}`);
+                    console.warn(`NotebookLM Source Management: Could not find delete menu item for source key: ${key}`);
                 }
             } catch (err) {
-                console.error("Sources+: Error during automated deletion step", err);
+                console.error("NotebookLM Source Management: Error during automated deletion step", err);
                 document.body.click(); // ensure menu is closed
             }
         }
@@ -379,11 +447,11 @@
         try {
             chrome.runtime.sendMessage({ type: 'SAVE_STATE', key, data }, (response) => {
                 if (chrome.runtime.lastError) {
-                    console.error("Sources+ 通信失败:", chrome.runtime.lastError);
+                    console.error("NotebookLM Source Management 通信失败:", chrome.runtime.lastError);
                 }
             });
         } catch (e) {
-            console.warn("Sources+: Context invalidated. Please refresh the page.", e);
+            console.warn("NotebookLM Source Management: Context invalidated. Please refresh the page.", e);
         }
     }, 1500);
 
@@ -408,7 +476,7 @@
         try {
             chrome.runtime.sendMessage({ type: 'LOAD_STATE', key }, (response) => {
                 if (chrome.runtime.lastError) {
-                    console.warn("Sources+ 未能连接后台:", chrome.runtime.lastError);
+                    console.warn("NotebookLM Source Management 未能连接后台:", chrome.runtime.lastError);
                     buildParentMap();
                     return callback({});
                 }
@@ -433,7 +501,7 @@
                 callback((stateData && stateData.enabledMap) || {});
             });
         } catch (e) {
-            console.warn("Sources+: Context invalidated during load. Please refresh the page.", e);
+            console.warn("NotebookLM Source Management: Context invalidated during load. Please refresh the page.", e);
             buildParentMap();
             callback({});
         }
@@ -1563,7 +1631,7 @@
             render();
             saveState();
         } catch (e) {
-            console.error("Sources+: Error syncing state during DOM change.", e);
+            console.error("NotebookLM Source Management: Error syncing state during DOM change.", e);
         }
     }, 500);
 
@@ -1600,7 +1668,7 @@
                 debouncedScanAndSync();
             }
         } catch (e) {
-            console.error("Sources+: Failed handling mutations.", e);
+            console.error("NotebookLM Source Management: Failed handling mutations.", e);
         }
     }
 
@@ -1619,6 +1687,11 @@
             shadowRoot.host.remove();
             shadowRoot = null;
         }
+        extensionHost = null;
+        if (focusHighlightTimeout) {
+            clearTimeout(focusHighlightTimeout);
+            focusHighlightTimeout = null;
+        }
         groupsById.clear();
         sourcesByKey.clear();
         parentMap.clear();
@@ -1628,15 +1701,32 @@
         clickQueue = [];
         isProcessingQueue = false;
         freshRowCache = null;
+        managerStatusReason = 'manager_not_ready';
     }
 
     function handleRouteChanged() {
         const newProjectId = getProjectId();
-        if (newProjectId && newProjectId !== projectId) {
-            console.log(`Sources+: Route changed from ${projectId} to ${newProjectId}. Re-initializing.`);
-            projectId = newProjectId;
-            teardown();
+        if (!newProjectId) {
+            if (projectId) {
+                console.log(`NotebookLM Source Management: Route changed from notebook ${projectId} to a non-notebook page. Tearing down.`);
+                projectId = null;
+                teardown();
+                managerStatusReason = 'not_on_notebook_page';
+            }
+            return;
+        }
 
+        if (newProjectId !== projectId) {
+            console.log(`NotebookLM Source Management: Route changed from ${projectId} to ${newProjectId}. Refreshing page to ensure the extension loads correctly.`);
+            projectId = newProjectId;
+            managerStatusReason = 'manager_not_ready';
+
+            if (window.location && typeof window.location.reload === 'function') {
+                window.location.reload();
+                return;
+            }
+
+            teardown();
             waitForElement(DEPS.panel).then(panel => {
                 if (panel) init(panel);
             });
@@ -1645,7 +1735,10 @@
 
     function init(sourcePanel) {
         const extensionRoot = document.createElement('div');
+        extensionRoot.id = 'sources-plus-root';
+        extensionHost = extensionRoot;
         shadowRoot = extensionRoot.attachShadow({ mode: 'open' });
+        managerStatusReason = 'manager_not_ready';
         const style = document.createElement('style');
         // MODIFIED: Added styles for the new toggle switch and removed tri-state checkbox styles.
         style.textContent = `
@@ -1756,6 +1849,11 @@
                 font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                 color: var(--sp-text-primary);
                 position: relative;
+                transition: box-shadow 0.35s cubic-bezier(0.25, 1, 0.5, 1), transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+            }
+            .sp-container.sp-focus-ring {
+                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.22), 0 18px 40px rgba(0, 122, 255, 0.18);
+                transform: translateY(-2px);
             }
             .sp-resizer {
                 height: 8px;
@@ -2905,6 +3003,7 @@
         const panelHeader = sourcePanel.querySelector('.panel-header') || sourcePanel.firstElementChild || sourcePanel;
         if (panelHeader) {
             panelHeader.insertAdjacentElement('afterend', extensionRoot);
+            managerStatusReason = 'ready';
             document.addEventListener('change', handleOriginalCheckboxChange, true);
 
             // --- Global Native Glassmorphism Injection ---
@@ -2965,7 +3064,7 @@
                 // Only observe childList additions/removals, ignore deep attribute/text changes
                 scrollObserver.observe(nativeScrollArea, { childList: true, subtree: true });
             } catch (e) {
-                console.error("Sources+: Failed to observe source panel", e);
+                console.error("NotebookLM Source Management: Failed to observe source panel", e);
             }
 
             // 2. Removed CPU-intensive Heartbeat Polling
@@ -2973,21 +3072,28 @@
 
             loadState((loadedEnabledMap) => { scanAndSyncSources(loadedEnabledMap, true); render(); });
         } else {
-            showCrashBanner("NotebookLM Sources+: Initialization failed. Could not locate panel header.");
+            managerStatusReason = 'panel_header_missing';
+            showCrashBanner("NotebookLM Source Management: Initialization failed. Could not locate panel header.");
         }
     }
 
     // --- Main execution ---
+    if (chrome.runtime && chrome.runtime.onMessage && typeof chrome.runtime.onMessage.addListener === 'function') {
+        chrome.runtime.onMessage.addListener(handleManagerMessage);
+    }
+
     if (projectId) {
         waitForElement(DEPS.panel).then(panel => {
             if (!panel) {
-                showCrashBanner("NotebookLM Sources+: Could not find NotebookLM panel. Google may have updated the page structure.");
+                managerStatusReason = 'source_panel_missing';
+                showCrashBanner("NotebookLM Source Management: Could not find NotebookLM panel. Google may have updated the page structure.");
                 return;
             }
             init(panel);
         }).catch(err => {
-            console.error("Sources+ Init Error:", err);
-            showCrashBanner("NotebookLM Sources+: Initialization error. Check console for details.");
+            console.error("NotebookLM Source Management init error:", err);
+            managerStatusReason = 'manager_not_ready';
+            showCrashBanner("NotebookLM Source Management: Initialization error. Check console for details.");
         });
     }
 
@@ -3016,10 +3122,17 @@
             state,
             DEPS,
             saveState,
+            getManagerStatus,
+            focusManagerPanel,
+            handleManagerMessage,
+            handleRouteChanged,
             _getIsDeletingSources: () => isDeletingSources,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _getFreshRowCache: () => freshRowCache,
             _setCustomHeight: (val) => { customHeight = val; },
+            _setManagerStatusReason: (val) => { managerStatusReason = val; },
+            _setProjectId: (val) => { projectId = val; },
+            _setShadowRootForTest: (val) => { shadowRoot = val; extensionHost = val && val.host ? val.host : null; },
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -3033,10 +3146,16 @@
                 customHeight = null;
                 projectId = null;
                 shadowRoot = document.createElement('div').attachShadow({ mode: 'open' }); // Mock shadowRoot for testing showToast
+                extensionHost = shadowRoot.host;
                 freshRowCache = null;
                 clickQueue = [];
                 isProcessingQueue = false;
                 isSyncingState = false;
+                managerStatusReason = 'manager_not_ready';
+                if (focusHighlightTimeout) {
+                    clearTimeout(focusHighlightTimeout);
+                    focusHighlightTimeout = null;
+                }
             }
         };
     }

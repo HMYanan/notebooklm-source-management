@@ -23,6 +23,22 @@ describe('background.js message listener', () => {
                 },
                 lastError: undefined
             },
+            tabs: {
+                query: jest.fn((queryInfo, cb) => {
+                    if (cb) cb([]);
+                }),
+                update: jest.fn((tabId, updateInfo, cb) => {
+                    if (cb) cb({ id: tabId, url: 'https://notebooklm.google.com/notebook/123' });
+                }),
+                create: jest.fn((createProperties, cb) => {
+                    if (cb) cb({ id: 99, url: createProperties.url });
+                })
+            },
+            windows: {
+                update: jest.fn((windowId, updateInfo, cb) => {
+                    if (cb) cb();
+                })
+            },
             storage: {
                 local: {
                     set: jest.fn((data, cb) => {
@@ -63,7 +79,7 @@ describe('background.js message listener', () => {
         listener({ type: 'SAVE_STATE' }, invalidSender, mockSendResponse);
 
         expect(console.warn).toHaveBeenCalledWith(
-            'Sources+: Received message from unauthorized sender:',
+            'NotebookLM Source Management: Received message from unauthorized sender:',
             invalidSender
         );
         expect(global.chrome.storage.local.set).not.toHaveBeenCalled();
@@ -98,7 +114,7 @@ describe('background.js message listener', () => {
 
         expect(global.chrome.storage.local.set).not.toHaveBeenCalled();
         expect(console.warn).toHaveBeenCalledWith(
-            'Sources+: Received SAVE_STATE with invalid key:',
+            'NotebookLM Source Management: Received SAVE_STATE with invalid key:',
             'invalidKey'
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
@@ -121,7 +137,7 @@ describe('background.js message listener', () => {
 
         expect(global.chrome.storage.local.set).toHaveBeenCalled();
         expect(console.error).toHaveBeenCalledWith(
-            'Sources+ background save error:',
+            'NotebookLM Source Management background save error:',
             global.chrome.runtime.lastError
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
@@ -165,7 +181,7 @@ describe('background.js message listener', () => {
 
         expect(global.chrome.storage.local.get).not.toHaveBeenCalled();
         expect(console.warn).toHaveBeenCalledWith(
-            'Sources+: Received LOAD_STATE with invalid key:',
+            'NotebookLM Source Management: Received LOAD_STATE with invalid key:',
             'invalidKey'
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
@@ -191,5 +207,123 @@ describe('background.js message listener', () => {
             success: true,
             data: null
         });
+    });
+
+    it('should focus an existing NotebookLM notebook tab for launcher requests', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([
+                { id: 12, url: 'https://notebooklm.google.com/', windowId: 3 },
+                { id: 44, url: 'https://notebooklm.google.com/notebook/abc', windowId: 5 }
+            ]);
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 12,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(global.chrome.tabs.query).toHaveBeenCalledWith(
+            { url: 'https://notebooklm.google.com/*' },
+            expect.any(Function)
+        );
+        expect(global.chrome.tabs.update).toHaveBeenCalledWith(
+            44,
+            { active: true },
+            expect.any(Function)
+        );
+        expect(global.chrome.windows.update).toHaveBeenCalledWith(
+            5,
+            { focused: true },
+            expect.any(Function)
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: true,
+            action: 'focused-existing-notebook',
+            tabId: 44,
+            url: 'https://notebooklm.google.com/notebook/123'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should open a new NotebookLM home tab when the current tab is the only home tab', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([
+                { id: 12, url: 'https://notebooklm.google.com/', windowId: 3 }
+            ]);
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 12,
+            currentContext: 'notebook-home'
+        }, {}, mockSendResponse);
+
+        expect(global.chrome.tabs.update).not.toHaveBeenCalled();
+        expect(global.chrome.tabs.create).toHaveBeenCalledWith(
+            { url: 'https://notebooklm.google.com/' },
+            expect.any(Function)
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: true,
+            action: 'opened-new-home',
+            tabId: 99,
+            url: 'https://notebooklm.google.com/'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should focus an existing NotebookLM home tab from an external page when no notebook tab exists', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([
+                { id: 21, url: 'https://notebooklm.google.com/', windowId: 8 }
+            ]);
+        });
+        global.chrome.tabs.update.mockImplementationOnce((tabId, updateInfo, cb) => {
+            if (cb) cb({ id: tabId, url: 'https://notebooklm.google.com/' });
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 5,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(global.chrome.tabs.update).toHaveBeenCalledWith(
+            21,
+            { active: true },
+            expect.any(Function)
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: true,
+            action: 'focused-existing-home',
+            tabId: 21,
+            url: 'https://notebooklm.google.com/'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should open NotebookLM when no matching tab exists', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([]);
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 5,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(global.chrome.tabs.create).toHaveBeenCalledWith(
+            { url: 'https://notebooklm.google.com/' },
+            expect.any(Function)
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: true,
+            action: 'opened-new-home',
+            tabId: 99,
+            url: 'https://notebooklm.google.com/'
+        });
+        expect(result).toBe(true);
     });
 });

@@ -5,8 +5,89 @@
     "extShortName": {
         "message": "NLM 来源管理"
     },
+    "actionTitle": {
+        "message": "打开 NotebookLM 来源管理启动器"
+    },
     "extDesc": {
         "message": "为 NotebookLM 来源面板添加文件夹分类与拖拽排序功能。"
+    },
+    "popup_launcher_note": {
+        "message": "功能运行在 NotebookLM 的来源面板内，工具栏图标只是启动器。"
+    },
+    "popup_badge_ready": {
+        "message": "已就绪"
+    },
+    "popup_badge_launcher": {
+        "message": "启动器"
+    },
+    "popup_badge_attention": {
+        "message": "需处理"
+    },
+    "popup_title_ready": {
+        "message": "当前笔记本中的来源管理器已就绪"
+    },
+    "popup_body_ready": {
+        "message": "点击下方按钮即可滚动到来源管理器，并在 NotebookLM 页面内高亮它。"
+    },
+    "popup_title_notebook_home": {
+        "message": "请先打开一个 NotebookLM 笔记本"
+    },
+    "popup_body_notebook_home": {
+        "message": "你当前在 NotebookLM 中，但还没有进入具体笔记本。打开任意笔记本后，再使用这个启动器即可。"
+    },
+    "popup_title_notebook_home_new_tab": {
+        "message": "在新标签页中打开 NotebookLM"
+    },
+    "popup_body_notebook_home_new_tab": {
+        "message": "你当前已经在 NotebookLM 首页。这个启动器会再打开一个新的 NotebookLM 标签页，确保点击后有明确反馈。"
+    },
+    "popup_title_switch_notebook": {
+        "message": "切换到已打开的 NotebookLM 笔记本"
+    },
+    "popup_body_switch_notebook": {
+        "message": "你已经在另一个标签页里打开了 NotebookLM 笔记本。请先切换过去，再使用页面内的来源管理器。"
+    },
+    "popup_title_external_page": {
+        "message": "前往 NotebookLM 才能使用来源管理器"
+    },
+    "popup_body_external_page": {
+        "message": "这个扩展不会打开独立的工具栏应用，真正的管理器会显示在已打开的 NotebookLM 笔记本页面里。"
+    },
+    "popup_title_refresh_needed": {
+        "message": "当前笔记本已打开，但管理器还没有挂载成功"
+    },
+    "popup_body_refresh_needed": {
+        "message": "请刷新这个笔记本页面后重新打开启动器。如果仍然失败，可能是 NotebookLM 页面结构发生了变化。"
+    },
+    "popup_cta_open_manager": {
+        "message": "打开来源管理器"
+    },
+    "popup_cta_go_to_notebooklm": {
+        "message": "前往 NotebookLM"
+    },
+    "popup_cta_go_to_open_notebook": {
+        "message": "前往已打开的笔记本"
+    },
+    "popup_cta_open_notebooklm_new_tab": {
+        "message": "在新标签页中打开 NotebookLM"
+    },
+    "popup_cta_refresh_notebook": {
+        "message": "刷新当前笔记本"
+    },
+    "popup_reason_source_panel_missing": {
+        "message": "当前页面找不到 NotebookLM 的来源面板。"
+    },
+    "popup_reason_panel_header_missing": {
+        "message": "已找到来源面板，但管理器无法挂载到它的标题区域。"
+    },
+    "popup_reason_manager_not_ready": {
+        "message": "当前页面中的来源管理器仍在加载中。"
+    },
+    "popup_reason_notebook_missing": {
+        "message": "请先打开 NotebookLM 的具体笔记本页面，再访问来源管理器。"
+    },
+    "popup_reason_generic": {
+        "message": "当前页面暂时无法使用来源管理器。"
     },
     "ui_filter_sources": {
         "message": "过滤来源"

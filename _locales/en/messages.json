@@ -5,8 +5,89 @@
     "extShortName": {
         "message": "NLM Source Management"
     },
+    "actionTitle": {
+        "message": "Open the NotebookLM Source Management launcher"
+    },
     "extDesc": {
         "message": "Folder and drag-and-drop sorting for the NotebookLM sources panel."
+    },
+    "popup_launcher_note": {
+        "message": "Works inside NotebookLM's source panel. The toolbar icon is a launcher."
+    },
+    "popup_badge_ready": {
+        "message": "Ready"
+    },
+    "popup_badge_launcher": {
+        "message": "Launcher"
+    },
+    "popup_badge_attention": {
+        "message": "Attention"
+    },
+    "popup_title_ready": {
+        "message": "Source manager is ready in this notebook"
+    },
+    "popup_body_ready": {
+        "message": "Use the button below to scroll to the manager and highlight it inside NotebookLM."
+    },
+    "popup_title_notebook_home": {
+        "message": "Open a notebook to use this extension"
+    },
+    "popup_body_notebook_home": {
+        "message": "You are in NotebookLM, but not inside a specific notebook yet. Open one notebook, then use this launcher again."
+    },
+    "popup_title_notebook_home_new_tab": {
+        "message": "Open NotebookLM in a new tab"
+    },
+    "popup_body_notebook_home_new_tab": {
+        "message": "You are already on the NotebookLM home page. This launcher will open a new NotebookLM tab so the click has a clear result."
+    },
+    "popup_title_switch_notebook": {
+        "message": "Switch to your open NotebookLM notebook"
+    },
+    "popup_body_switch_notebook": {
+        "message": "A NotebookLM notebook is already open in another tab. Use the button below to switch there first."
+    },
+    "popup_title_external_page": {
+        "message": "Go to NotebookLM to use the source manager"
+    },
+    "popup_body_external_page": {
+        "message": "This extension does not open a separate toolbar app. Its manager appears inside an open NotebookLM notebook."
+    },
+    "popup_title_refresh_needed": {
+        "message": "This notebook is open, but the manager is not attached"
+    },
+    "popup_body_refresh_needed": {
+        "message": "Refresh this notebook and reopen the launcher. If it still fails, NotebookLM's page structure may have changed."
+    },
+    "popup_cta_open_manager": {
+        "message": "Open source manager"
+    },
+    "popup_cta_go_to_notebooklm": {
+        "message": "Go to NotebookLM"
+    },
+    "popup_cta_go_to_open_notebook": {
+        "message": "Go to open notebook"
+    },
+    "popup_cta_open_notebooklm_new_tab": {
+        "message": "Open NotebookLM in new tab"
+    },
+    "popup_cta_refresh_notebook": {
+        "message": "Refresh this notebook"
+    },
+    "popup_reason_source_panel_missing": {
+        "message": "NotebookLM's source panel could not be found on this page."
+    },
+    "popup_reason_panel_header_missing": {
+        "message": "The source panel was found, but the manager could not be attached to its header."
+    },
+    "popup_reason_manager_not_ready": {
+        "message": "The manager is still loading on this page."
+    },
+    "popup_reason_notebook_missing": {
+        "message": "Open a NotebookLM notebook page to access the source manager."
+    },
+    "popup_reason_generic": {
+        "message": "The source manager is not available on this page yet."
     },
     "ui_filter_sources": {
         "message": "Filter sources"
