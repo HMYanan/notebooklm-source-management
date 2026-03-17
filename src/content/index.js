@@ -2,20 +2,31 @@
     'use strict';
 
     // --- Selectors & Dependencies ---
-    const DEPS = {
-        panel: ['[data-testid="source-panel"]', '.source-panel'], // Fallbacks inside arrays
-        scroll: ['.scroll-area'],
-        row: ['[data-testid="source-item"]', '.single-source-container'],
-        title: ['[data-testid="source-title"]', '.source-title'],
-        checkbox: ['input[type="checkbox"]', '.select-checkbox input[type="checkbox"]'],
-        moreBtn: ['[aria-label="More options"]', '.source-item-more-button'],
-        icon: ['mat-icon[class*="-icon-color"]', 'mat-icon:not([aria-label="More options"] mat-icon):not(button mat-icon)']
-    };
-    // Kept for legacy compatibility in other parts of the script where DEPS.x[0] is sufficient
-    const SCROLL_AREA_SELECTOR = DEPS.scroll[0];
-    const SOURCE_TITLE_SELECTOR = DEPS.title[0];
-    const SOURCE_CHECKBOX_SELECTOR = DEPS.checkbox[0];
-    const SOURCE_ICON_SELECTOR = DEPS.icon[0];
+    const contentConfig = globalThis.NSM_CONTENT_CONFIG;
+    const contentStyleText = globalThis.NSM_CONTENT_STYLE_TEXT;
+    const globalOverlayStyleText = globalThis.NSM_GLOBAL_OVERLAY_STYLE_TEXT;
+    const createManagerShell = globalThis.NSM_CREATE_MANAGER_SHELL;
+
+    if (
+        !contentConfig ||
+        typeof contentStyleText !== 'string' ||
+        typeof globalOverlayStyleText !== 'string' ||
+        typeof createManagerShell !== 'function'
+    ) {
+        throw new Error('NotebookLM Source Management: Content helpers are missing.');
+    }
+
+    const {
+        DEPS,
+        SCROLL_AREA_SELECTOR,
+        SOURCE_TITLE_SELECTOR,
+        SOURCE_CHECKBOX_SELECTOR,
+        SOURCE_ICON_SELECTOR,
+        STORAGE_SCHEMA_VERSION,
+        GLOBAL_OVERLAY_STYLE_ID,
+        ROUTE_REINIT_MAX_ATTEMPTS,
+        ROUTE_REINIT_RETRY_DELAY_MS
+    } = contentConfig;
 
     // --- State Management ---
     let state = {
@@ -41,6 +52,9 @@
     let extensionHost = null;
     let managerStatusReason = 'manager_not_ready';
     let focusHighlightTimeout = null;
+    let pendingStorageUpgrade = false;
+    let activeRouteRecoveryToken = 0;
+    let routeRecoveryTimeout = null;
 
     // --- Helper Functions ---
 
@@ -73,11 +87,17 @@
         return [];
     }
 
-    function waitForElement(selectors) {
+    function waitForElement(selectors, options = {}) {
+        const {
+            observerRoot = document.body,
+            timeoutMs = 0
+        } = options;
+
         return new Promise(resolve => {
             const check = () => findElement(selectors);
             const el = check();
             if (el) return resolve(el);
+
             const observer = new MutationObserver(() => {
                 const found = check();
                 if (found) {
@@ -85,10 +105,18 @@
                     observer.disconnect();
                 }
             });
-            observer.observe(document.body, {
+
+            observer.observe(observerRoot || document.body, {
                 childList: true,
                 subtree: true
             });
+
+            if (timeoutMs > 0) {
+                setTimeout(() => {
+                    observer.disconnect();
+                    resolve(check() || null);
+                }, timeoutMs);
+            }
         });
     }
 
@@ -109,6 +137,309 @@
             hash |= 0;
         }
         return `source_${hash}`;
+    }
+
+    function normalizeSourceText(value) {
+        return String(value || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .toLowerCase();
+    }
+
+    function sanitizeSourceToken(value) {
+        return normalizeSourceText(value)
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 96);
+    }
+
+    function extractTokenFromUrl(url) {
+        if (typeof url !== 'string' || !url) return null;
+
+        try {
+            const parsedUrl = new URL(url, window.location.origin);
+            const preferredParams = [
+                'source', 'sourceId', 'source_id',
+                'documentId', 'document_id',
+                'docId', 'doc_id',
+                'fileId', 'file_id',
+                'resourceId', 'resource_id',
+                'id'
+            ];
+
+            for (const key of preferredParams) {
+                const value = parsedUrl.searchParams.get(key);
+                const sanitized = sanitizeSourceToken(value ? `${key}:${value}` : '');
+                if (sanitized) return sanitized;
+            }
+
+            const segments = parsedUrl.pathname.split('/').filter(Boolean);
+            const lastSegment = segments[segments.length - 1];
+            if (lastSegment && /[A-Za-z0-9_-]{6,}/.test(lastSegment)) {
+                return sanitizeSourceToken(`${segments[segments.length - 2] || 'path'}:${lastSegment}`);
+            }
+        } catch (error) {
+            return null;
+        }
+
+        return null;
+    }
+
+    function extractSourceStableToken(sourceRow) {
+        if (!sourceRow) return null;
+
+        const selectors = [
+            '[data-source-id]',
+            '[data-document-id]',
+            '[data-doc-id]',
+            '[data-resource-id]',
+            '[data-item-id]',
+            '[data-id]',
+            '[href]',
+            '[aria-controls]'
+        ];
+        const attributeKeys = [
+            'data-source-id',
+            'data-document-id',
+            'data-doc-id',
+            'data-resource-id',
+            'data-item-id',
+            'data-id',
+            'aria-controls'
+        ];
+        const candidates = [sourceRow];
+
+        for (const selector of selectors) {
+            const nodes = sourceRow.querySelectorAll ? Array.from(sourceRow.querySelectorAll(selector)).slice(0, 8) : [];
+            candidates.push(...nodes);
+        }
+
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate.getAttribute !== 'function') continue;
+
+            for (const attributeKey of attributeKeys) {
+                const attributeValue = candidate.getAttribute(attributeKey);
+                const sanitized = sanitizeSourceToken(attributeValue ? `${attributeKey}:${attributeValue}` : '');
+                if (sanitized) return sanitized;
+            }
+
+            const hrefToken = extractTokenFromUrl(candidate.getAttribute('href'));
+            if (hrefToken) return hrefToken;
+        }
+
+        return null;
+    }
+
+    function buildLegacySourceKey(keyTitle, seenLegacyKeys) {
+        const baseKey = generateSourceKey(keyTitle);
+        const duplicateIndex = seenLegacyKeys.get(baseKey) || 0;
+        seenLegacyKeys.set(baseKey, duplicateIndex + 1);
+        return duplicateIndex === 0 ? baseKey : `${baseKey}_${duplicateIndex}`;
+    }
+
+    function createSourceDescriptor(sourceElement, seenSourceIds, seenLegacyKeys) {
+        const titleEl = findElement(DEPS.title, sourceElement);
+        const checkbox = findElement(DEPS.checkbox, sourceElement);
+        const ariaLabel = checkbox ? (checkbox.getAttribute('aria-label') || '') : '';
+        const keyTitle = ariaLabel || titleEl?.textContent || '';
+        const title = titleEl?.textContent.trim() || 'Untitled Source';
+
+        let iconEl = findElement(DEPS.icon, sourceElement);
+        let iconName = iconEl?.textContent.trim() || 'article';
+        const iconMap = {
+            'video_youtube': 'smart_display',
+            'more_vert': 'article',
+            'audiotrack': 'headphones',
+            'picture_as_pdf': 'description',
+            'drive_pdf': 'description',
+            'link': 'link',
+            'format_quote': 'format_quote',
+            'text_snippet': 'article',
+            'note': 'sticky_note_2'
+        };
+
+        if (iconMap[iconName]) {
+            iconName = iconMap[iconName];
+            if (iconName === 'article' && iconEl?.textContent.trim() === 'more_vert') {
+                iconEl = null;
+            }
+        }
+
+        const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
+        const stableToken = extractSourceStableToken(sourceElement);
+        const fingerprint = [
+            normalizeSourceText(title),
+            normalizeSourceText(ariaLabel),
+            normalizeSourceText(iconName)
+        ].join('|');
+        const identityType = stableToken ? 'stable-token' : 'fingerprint';
+        const sourceIdBase = stableToken
+            ? `source_id_${stableToken}`
+            : `source_fp_${generateSourceKey(fingerprint)}`;
+        const duplicateIndex = seenSourceIds.get(sourceIdBase) || 0;
+        seenSourceIds.set(sourceIdBase, duplicateIndex + 1);
+        const key = duplicateIndex === 0 ? sourceIdBase : `${sourceIdBase}_${duplicateIndex}`;
+        const legacyKey = buildLegacySourceKey(keyTitle, seenLegacyKeys);
+        const isLoading = Boolean(sourceElement.querySelector('[role="progressbar"], mat-spinner, svg animateTransform'));
+        const isDisabled = !checkbox || checkbox.disabled || isLoading;
+
+        return {
+            key,
+            legacyKey,
+            title,
+            normalizedTitle: normalizeSourceText(title),
+            lowercaseTitle: normalizeSourceText(title),
+            ariaLabel,
+            fingerprint,
+            identityType,
+            element: sourceElement,
+            iconName,
+            iconColorClass,
+            checkbox,
+            isLoading,
+            isDisabled
+        };
+    }
+
+    function buildSourceLookup(sourceList) {
+        const byId = new Map();
+        const byLegacyKey = new Map();
+        const fingerprintBuckets = new Map();
+        const titleBuckets = new Map();
+
+        for (const source of sourceList) {
+            byId.set(source.key, source.key);
+            byLegacyKey.set(source.legacyKey, source.key);
+
+            if (!fingerprintBuckets.has(source.fingerprint)) fingerprintBuckets.set(source.fingerprint, []);
+            fingerprintBuckets.get(source.fingerprint).push(source.key);
+
+            if (!titleBuckets.has(source.normalizedTitle)) titleBuckets.set(source.normalizedTitle, []);
+            titleBuckets.get(source.normalizedTitle).push(source.key);
+        }
+
+        const uniqueByFingerprint = new Map();
+        const uniqueByTitle = new Map();
+
+        fingerprintBuckets.forEach((keys, fingerprint) => {
+            if (keys.length === 1) uniqueByFingerprint.set(fingerprint, keys[0]);
+        });
+        titleBuckets.forEach((keys, title) => {
+            if (keys.length === 1) uniqueByTitle.set(title, keys[0]);
+        });
+
+        return {
+            byId,
+            byLegacyKey,
+            uniqueByFingerprint,
+            uniqueByTitle
+        };
+    }
+
+    function resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord = null) {
+        if (!storedKey || !sourceLookup) return null;
+        if (sourceLookup.byId.has(storedKey)) return sourceLookup.byId.get(storedKey);
+        if (sourceLookup.byLegacyKey.has(storedKey)) return sourceLookup.byLegacyKey.get(storedKey);
+
+        if (sourceRecord && sourceRecord.fingerprint && sourceLookup.uniqueByFingerprint.has(sourceRecord.fingerprint)) {
+            return sourceLookup.uniqueByFingerprint.get(sourceRecord.fingerprint);
+        }
+
+        const normalizedTitle = normalizeSourceText(
+            sourceRecord && (sourceRecord.normalizedTitle || sourceRecord.title)
+        );
+        if (normalizedTitle && sourceLookup.uniqueByTitle.has(normalizedTitle)) {
+            return sourceLookup.uniqueByTitle.get(normalizedTitle);
+        }
+
+        return null;
+    }
+
+    function buildResolvedSourceStateById(sourceLookup, loadedState) {
+        const resolvedSourceState = new Map();
+        if (!loadedState) return resolvedSourceState;
+
+        if (loadedState.schemaVersion === STORAGE_SCHEMA_VERSION && loadedState.sourceStateById) {
+            Object.entries(loadedState.sourceStateById).forEach(([storedKey, sourceRecord]) => {
+                const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
+                if (resolvedKey && !resolvedSourceState.has(resolvedKey)) {
+                    resolvedSourceState.set(resolvedKey, sourceRecord);
+                }
+            });
+            return resolvedSourceState;
+        }
+
+        if (loadedState.legacyEnabledMap) {
+            Object.entries(loadedState.legacyEnabledMap).forEach(([legacyKey, enabled]) => {
+                const resolvedKey = resolveStoredSourceKey(legacyKey, sourceLookup);
+                if (resolvedKey && !resolvedSourceState.has(resolvedKey)) {
+                    resolvedSourceState.set(resolvedKey, { enabled: Boolean(enabled) });
+                }
+            });
+        }
+
+        return resolvedSourceState;
+    }
+
+    function reconcilePersistedTree(loadedState, sourceLookup) {
+        const nextGroupsById = new Map();
+        const seenSourceRefs = new Set();
+        const rawGroupsById = loadedState && loadedState.groupsById ? loadedState.groupsById : {};
+
+        Object.entries(rawGroupsById).forEach(([groupId, rawGroup]) => {
+            nextGroupsById.set(groupId, {
+                ...rawGroup,
+                enabled: rawGroup.enabled !== undefined ? rawGroup.enabled : true,
+                collapsed: rawGroup.collapsed === true,
+                children: []
+            });
+        });
+
+        Object.entries(rawGroupsById).forEach(([groupId, rawGroup]) => {
+            const nextGroup = nextGroupsById.get(groupId);
+            if (!nextGroup) return;
+
+            (Array.isArray(rawGroup.children) ? rawGroup.children : []).forEach((child) => {
+                if (child.type === 'group' && nextGroupsById.has(child.id) && child.id !== groupId) {
+                    nextGroup.children.push({ type: 'group', id: child.id });
+                    return;
+                }
+
+                if (child.type !== 'source') return;
+
+                const sourceRecord = loadedState && loadedState.sourceStateById
+                    ? loadedState.sourceStateById[child.key]
+                    : null;
+                const resolvedKey = resolveStoredSourceKey(child.key, sourceLookup, sourceRecord);
+                if (!resolvedKey || seenSourceRefs.has(resolvedKey)) return;
+
+                nextGroup.children.push({ type: 'source', key: resolvedKey });
+                seenSourceRefs.add(resolvedKey);
+            });
+        });
+
+        const nextGroups = Array.isArray(loadedState && loadedState.groups)
+            ? loadedState.groups.filter(groupId => nextGroupsById.has(groupId))
+            : [];
+        const nextUngrouped = [];
+
+        (Array.isArray(loadedState && loadedState.ungrouped) ? loadedState.ungrouped : []).forEach((storedKey) => {
+            const sourceRecord = loadedState && loadedState.sourceStateById
+                ? loadedState.sourceStateById[storedKey]
+                : null;
+            const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
+            if (!resolvedKey || seenSourceRefs.has(resolvedKey)) return;
+
+            nextUngrouped.push(resolvedKey);
+            seenSourceRefs.add(resolvedKey);
+        });
+
+        return {
+            groups: nextGroups,
+            groupsById: nextGroupsById,
+            ungrouped: nextUngrouped,
+            seenSourceRefs
+        };
     }
 
     let toastTimeout = null;
@@ -455,55 +786,90 @@
         }
     }, 1500);
 
-    function saveState() {
-        if (!projectId) return;
-        const key = `sourcesPlusState_${projectId}`;
-        const enabledMap = {};
-        sourcesByKey.forEach((source, sourceKey) => { enabledMap[sourceKey] = source.enabled; });
-        const persistableState = {
+    function buildPersistableState() {
+        const sourceStateById = {};
+
+        sourcesByKey.forEach((source, sourceKey) => {
+            sourceStateById[sourceKey] = {
+                enabled: Boolean(source.enabled),
+                title: source.title,
+                normalizedTitle: source.normalizedTitle || normalizeSourceText(source.title),
+                fingerprint: source.fingerprint || '',
+                identityType: source.identityType || 'fingerprint'
+            };
+        });
+
+        return {
+            schemaVersion: STORAGE_SCHEMA_VERSION,
             groups: state.groups,
             groupsById: Object.fromEntries(groupsById),
             ungrouped: state.ungrouped,
-            enabledMap: enabledMap,
-            customHeight: customHeight
+            sourceStateById,
+            customHeight
         };
+    }
+
+    function saveState() {
+        if (!projectId) return;
+        const key = `sourcesPlusState_${projectId}`;
+        const persistableState = buildPersistableState();
         debouncedStorageSet(key, persistableState);
     }
 
+    function normalizeLoadedState(stateData) {
+        if (!stateData || typeof stateData !== 'object') return null;
+
+        if (stateData.schemaVersion === STORAGE_SCHEMA_VERSION) {
+            pendingStorageUpgrade = false;
+            return {
+                schemaVersion: STORAGE_SCHEMA_VERSION,
+                groups: Array.isArray(stateData.groups) ? stateData.groups : [],
+                groupsById: stateData.groupsById || {},
+                ungrouped: Array.isArray(stateData.ungrouped) ? stateData.ungrouped : [],
+                sourceStateById: stateData.sourceStateById || {},
+                customHeight: stateData.customHeight ?? null
+            };
+        }
+
+        pendingStorageUpgrade = true;
+        return {
+            schemaVersion: 1,
+            groups: Array.isArray(stateData.groups) ? stateData.groups : [],
+            groupsById: stateData.groupsById || {},
+            ungrouped: Array.isArray(stateData.ungrouped) ? stateData.ungrouped : [],
+            legacyEnabledMap: stateData.enabledMap || {},
+            customHeight: stateData.customHeight ?? null
+        };
+    }
+
     function loadState(callback) {
-        if (!projectId) return callback();
+        if (!projectId) {
+            pendingStorageUpgrade = false;
+            return callback(null);
+        }
+
         const key = `sourcesPlusState_${projectId}`;
         try {
             chrome.runtime.sendMessage({ type: 'LOAD_STATE', key }, (response) => {
                 if (chrome.runtime.lastError) {
                     console.warn("NotebookLM Source Management 未能连接后台:", chrome.runtime.lastError);
-                    buildParentMap();
-                    return callback({});
+                    pendingStorageUpgrade = false;
+                    return callback(null);
                 }
-                const stateData = response && response.data;
-                if (stateData) {
-                    if (stateData.groupsById) {
-                        state.groups = stateData.groups || [];
-                        state.ungrouped = stateData.ungrouped || [];
-                        groupsById = new Map(Object.entries(stateData.groupsById));
-                        groupsById.forEach(g => {
-                            if (g.enabled === undefined) g.enabled = true;
-                            if (g.collapsed === undefined) g.collapsed = false;
-                        });
-                    }
-                    if (stateData.customHeight) {
-                        customHeight = stateData.customHeight;
-                        const container = shadowRoot.querySelector('.sp-container');
-                        if (container) container.style.height = `${customHeight}px`;
-                    }
+
+                const loadedState = normalizeLoadedState(response && response.data);
+                if (loadedState && loadedState.customHeight != null) {
+                    customHeight = loadedState.customHeight;
+                    const container = shadowRoot.querySelector('.sp-container');
+                    if (container) container.style.height = `${customHeight}px`;
                 }
-                buildParentMap();
-                callback((stateData && stateData.enabledMap) || {});
+
+                callback(loadedState);
             });
         } catch (e) {
             console.warn("NotebookLM Source Management: Context invalidated during load. Please refresh the page.", e);
-            buildParentMap();
-            callback({});
+            pendingStorageUpgrade = false;
+            callback(null);
         }
     }
 
@@ -1539,89 +1905,83 @@
     }
 
     // --- Initialization & Observation ---
-    function scanAndSyncSources(loadedEnabledMap, isFirstLoad = false) {
-        const allKnownKeys = new Set();
-        groupsById.forEach(g => g.children.forEach(c => { if (c.type === 'source') allKnownKeys.add(c.key); }));
-        state.ungrouped.forEach(key => allKnownKeys.add(key));
-
-        // Don't clear sourcesByKey completely on re-renders, otherwise we lose extension state
+    function scanAndSyncSources(loadedState, isFirstLoad = false) {
         const oldSourcesMap = new Map();
         if (!isFirstLoad) {
-            sourcesByKey.forEach((val, key) => oldSourcesMap.set(key, val.enabled));
+            sourcesByKey.forEach((source, key) => {
+                oldSourcesMap.set(key, { enabled: source.enabled });
+            });
         }
 
         sourcesByKey.clear();
         keyByElement = new WeakMap();
-        const sourceElements = queryAllElements(DEPS.row);
+
+        const sourceElements = Array.from(queryAllElements(DEPS.row));
         if (sourceElements.length === 0 && Array.from(document.body.children).length > 2) {
-            // Document might be still loading the initial sources over network or panel is empty.
-            // Suppressed console.warn to keep extension log clean.
+            // The native panel can be empty while NotebookLM is still loading initial results.
         }
 
-        const seenTitlesCount = new Map();
+        const seenSourceIds = new Map();
+        const seenLegacyKeys = new Map();
+        const currentSources = sourceElements.map((sourceElement) => (
+            createSourceDescriptor(sourceElement, seenSourceIds, seenLegacyKeys)
+        ));
+        const sourceLookup = buildSourceLookup(currentSources);
+        const resolvedSourceStateById = isFirstLoad
+            ? buildResolvedSourceStateById(sourceLookup, loadedState)
+            : new Map();
 
-        Array.from(sourceElements).forEach((el) => {
-            const titleEl = findElement(DEPS.title, el);
-            const checkbox = findElement(DEPS.checkbox, el);
-            const label = checkbox ? checkbox.getAttribute('aria-label') : '';
-            const keyTitle = label || titleEl?.textContent || '';
-            const title = titleEl?.textContent.trim() || 'Untitled Source';
-            
-            let iconEl = findElement(DEPS.icon, el);
-            let iconName = iconEl?.textContent.trim() || 'article';
-            
-            // Map unsupported or missing icons to valid Google Symbols
-            const iconMap = {
-                'video_youtube': 'smart_display',
-                'more_vert': 'article', // Prevent grabbing the wrong icon
-                'audiotrack': 'headphones',
-                'picture_as_pdf': 'description',
-                'drive_pdf': 'description',
-                'link': 'link',
-                'format_quote': 'format_quote',
-                'text_snippet': 'article',
-                'note': 'sticky_note_2'
-            };
-            
-            if (iconMap[iconName]) {
-                iconName = iconMap[iconName];
-                if (iconName === 'article' && iconEl?.textContent.trim() === 'more_vert') {
-                    iconEl = null;
-                }
-            }
-            const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
-            
-            const baseKey = generateSourceKey(keyTitle);
-            const count = seenTitlesCount.get(baseKey) || 0;
-            seenTitlesCount.set(baseKey, count + 1);
-            const key = count === 0 ? baseKey : `${baseKey}_${count}`;
+        let knownSourceRefs = new Set();
+        if (isFirstLoad) {
+            const reconciledTree = reconcilePersistedTree(loadedState, sourceLookup);
+            state.groups = reconciledTree.groups;
+            state.ungrouped = reconciledTree.ungrouped;
+            groupsById.clear();
+            reconciledTree.groupsById.forEach((group, groupId) => {
+                groupsById.set(groupId, group);
+            });
+            knownSourceRefs = reconciledTree.seenSourceRefs;
+        } else {
+            groupsById.forEach((group) => {
+                group.children.forEach((child) => {
+                    if (child.type === 'source') knownSourceRefs.add(child.key);
+                });
+            });
+            state.ungrouped.forEach((key) => knownSourceRefs.add(key));
+        }
 
-            // Heuristic to detect if a source is currently loading
-            // NotebookLM uses role="progressbar" or mat-spinner when loading a document
-            const isLoadingDom = el.querySelector('[role="progressbar"], mat-spinner, svg animateTransform');
-            const isLoading = !!isLoadingDom;
-
-            const isDisabled = !checkbox || checkbox.disabled || isLoading;
+        currentSources.forEach((source) => {
             let enabled;
             if (isFirstLoad) {
-                enabled = (key in loadedEnabledMap) ? loadedEnabledMap[key] : (checkbox?.checked || false);
+                enabled = resolvedSourceStateById.has(source.key)
+                    ? Boolean(resolvedSourceStateById.get(source.key).enabled)
+                    : Boolean(source.checkbox?.checked);
             } else {
-                // On DOM re-render, prefer our local extension state over the potentially stale native state
-                enabled = oldSourcesMap.has(key) ? oldSourcesMap.get(key) : (checkbox?.checked || false);
+                enabled = oldSourcesMap.has(source.key)
+                    ? Boolean(oldSourcesMap.get(source.key).enabled)
+                    : Boolean(source.checkbox?.checked);
             }
 
-            const lowercaseTitle = title ? title.toLowerCase() : '';
-            sourcesByKey.set(key, { key, title, lowercaseTitle, element: el, enabled, iconName, iconColorClass, isDisabled, isLoading });
-            keyByElement.set(el, key);
-            if (!allKnownKeys.has(key)) {
-                state.ungrouped.push(key);
+            const hydratedSource = {
+                ...source,
+                enabled
+            };
+
+            sourcesByKey.set(source.key, hydratedSource);
+            keyByElement.set(source.element, source.key);
+
+            if (!knownSourceRefs.has(source.key)) {
+                state.ungrouped.push(source.key);
+                knownSourceRefs.add(source.key);
             }
         });
 
         buildParentMap();
-        sourcesByKey.forEach(source => {
+        sourcesByKey.forEach((source) => {
             syncSourceToPage(source, isSourceEffectivelyEnabled(source));
         });
+
+        return isFirstLoad && pendingStorageUpgrade;
     }
 
     const debouncedScanAndSync = debounce(() => {
@@ -1673,6 +2033,13 @@
     }
 
     // --- Lifecycle Management ---
+    function removeGlobalOverlayStyle() {
+        const globalStyle = document.getElementById(GLOBAL_OVERLAY_STYLE_ID);
+        if (globalStyle && typeof globalStyle.remove === 'function') {
+            globalStyle.remove();
+        }
+    }
+
     function teardown() {
         if (scrollObserver) {
             scrollObserver.disconnect();
@@ -1692,16 +2059,50 @@
             clearTimeout(focusHighlightTimeout);
             focusHighlightTimeout = null;
         }
+        if (routeRecoveryTimeout) {
+            clearTimeout(routeRecoveryTimeout);
+            routeRecoveryTimeout = null;
+        }
+        removeGlobalOverlayStyle();
         groupsById.clear();
         sourcesByKey.clear();
         parentMap.clear();
         keyByElement = new WeakMap();
-        state = { groups: [], ungrouped: [], filterQuery: '' };
+        state.groups = [];
+        state.ungrouped = [];
+        state.filterQuery = '';
+        state.isBatchMode = false;
         isSyncingState = false;
         clickQueue = [];
         isProcessingQueue = false;
         freshRowCache = null;
+        pendingStorageUpgrade = false;
         managerStatusReason = 'manager_not_ready';
+    }
+
+    function recoverManagerForRoute(targetProjectId, attempt = 0, recoveryToken = activeRouteRecoveryToken) {
+        waitForElement(DEPS.panel, {
+            observerRoot: document.body,
+            timeoutMs: ROUTE_REINIT_RETRY_DELAY_MS
+        }).then((panel) => {
+            if (recoveryToken !== activeRouteRecoveryToken) return;
+
+            if (panel && getProjectId() === targetProjectId) {
+                init(panel);
+                return;
+            }
+
+            if (attempt + 1 >= ROUTE_REINIT_MAX_ATTEMPTS) {
+                if (window.location && typeof window.location.reload === 'function') {
+                    window.location.reload();
+                }
+                return;
+            }
+
+            routeRecoveryTimeout = setTimeout(() => {
+                recoverManagerForRoute(targetProjectId, attempt + 1, recoveryToken);
+            }, ROUTE_REINIT_RETRY_DELAY_MS);
+        });
     }
 
     function handleRouteChanged() {
@@ -1709,6 +2110,7 @@
         if (!newProjectId) {
             if (projectId) {
                 console.log(`NotebookLM Source Management: Route changed from notebook ${projectId} to a non-notebook page. Tearing down.`);
+                activeRouteRecoveryToken += 1;
                 projectId = null;
                 teardown();
                 managerStatusReason = 'not_on_notebook_page';
@@ -1717,19 +2119,12 @@
         }
 
         if (newProjectId !== projectId) {
-            console.log(`NotebookLM Source Management: Route changed from ${projectId} to ${newProjectId}. Refreshing page to ensure the extension loads correctly.`);
+            console.log(`NotebookLM Source Management: Route changed from ${projectId} to ${newProjectId}. Reinitializing manager.`);
+            activeRouteRecoveryToken += 1;
             projectId = newProjectId;
             managerStatusReason = 'manager_not_ready';
-
-            if (window.location && typeof window.location.reload === 'function') {
-                window.location.reload();
-                return;
-            }
-
             teardown();
-            waitForElement(DEPS.panel).then(panel => {
-                if (panel) init(panel);
-            });
+            recoverManagerForRoute(newProjectId, 0, activeRouteRecoveryToken);
         }
     }
 
@@ -1740,1202 +2135,10 @@
         shadowRoot = extensionRoot.attachShadow({ mode: 'open' });
         managerStatusReason = 'manager_not_ready';
         const style = document.createElement('style');
-        // MODIFIED: Added styles for the new toggle switch and removed tri-state checkbox styles.
-        style.textContent = `
-            @font-face {
-                font-family: 'Google Symbols';
-                font-style: normal;
-                font-weight: 400;
-                src: url(
-                    https://fonts.gstatic.com/s/googlesymbols/v342/HhzMU5Ak9u-oMExPeInvcuEmPosC9zyteYEFU68cPrjdKM1XLPTxlGmzczpgWvF1d8Yp7AudBnt3CPar1JFWjoLAUv3G-tSNljixIIGUsC62cYrKiAw.woff2
-                ) format('woff2');
-            }
-            .google-symbols {
-                font-family: 'Google Symbols';
-                font-weight: normal;
-                font-style: normal;
-                font-size: 18px;
-                line-height: 1;
-                letter-spacing: normal;
-                text-transform: none;
-                display: inline-block;
-                white-space: nowrap;
-                word-wrap: normal;
-                direction: ltr;
-                -webkit-font-feature-settings: 'liga';
-                -webkit-font-smoothing: antialiased;
-            }
-            
-            /* -------- Light Mode (Default) -------- */
-            :host {
-                --sp-bg-primary: transparent;
-                --sp-bg-secondary: rgba(0,0,0,0.03);
-                --sp-bg-hover: rgba(0,0,0,0.04);
-                --sp-bg-button: #fff;
-                --sp-bg-button-hover: #f5f5f7;
-                --sp-bg-button-active: #ebebeb;
-                --sp-bg-toast: rgba(0,0,0,0.8);
-                --sp-bg-badge: rgba(0,0,0,0.05);
-                --sp-bg-switch: #e9e9ea;
-                --sp-bg-switch-thumb: white;
-                --sp-bg-checkbox: #fff;
-                --sp-border-light: rgba(0,0,0,0.1);
-                --sp-border-medium: rgba(0,0,0,0.15);
-                --sp-border-checkbox: rgba(0,0,0,0.25);
-                --sp-text-primary: #1A1A1C;
-                --sp-text-secondary: #6E6E73;
-                --sp-text-toast: #fff;
-                --sp-text-badge: #6E6E73;
-                --sp-accent: #007aff;
-                --sp-accent-danger: #ff3b30;
-                --sp-accent-success: #34c759;
-                --sp-drag-bg: rgba(0, 122, 255, 0.05);
-                --sp-drag-into-bg: rgba(0, 122, 255, 0.1);
-                --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.08);
-                --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.08);
-                --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
-                --sp-icon-button-hover: rgba(0,0,0,0.08);
-                
-                /* Global Glassmorphism Variables */
-                --sp-glass-bg-body: rgba(255, 255, 255, 0.85);
-                --sp-glass-bg-menu: rgba(255, 255, 255, 0.85);
-                --sp-glass-border: rgba(0, 0, 0, 0.05);
-                --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-            }
-
-            /* -------- Dark Mode Override -------- */
-            @media (prefers-color-scheme: dark) {
-                :host {
-                    --sp-bg-secondary: rgba(255,255,255,0.05);
-                    --sp-bg-hover: rgba(255,255,255,0.08);
-                    --sp-bg-button: #1c1c1e;
-                    --sp-bg-button-hover: #2c2c2e;
-                    --sp-bg-button-active: #3a3a3c;
-                    --sp-bg-toast: rgba(255,255,255,0.9);
-                    --sp-bg-badge: rgba(255,255,255,0.1);
-                    --sp-bg-switch: #39393d;
-                    --sp-bg-switch-thumb: white;
-                    --sp-bg-checkbox: rgba(255,255,255,0.1);
-                    --sp-border-light: rgba(255,255,255,0.1);
-                    --sp-border-medium: rgba(255,255,255,0.2);
-                    --sp-border-checkbox: rgba(255,255,255,0.6);
-                    --sp-text-primary: #f5f5f7;
-                    --sp-text-secondary: #98989d;
-                    --sp-text-toast: #000;
-                    --sp-text-badge: #98989d;
-                    --sp-accent: #0a84ff;
-                    --sp-accent-danger: #ff453a;
-                    --sp-accent-success: #30d158;
-                    --sp-drag-bg: rgba(10, 132, 255, 0.1);
-                    --sp-drag-into-bg: rgba(10, 132, 255, 0.15);
-                    --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.4);
-                    --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.2);
-                    --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.3), 0 0 1px rgba(0,0,0,0.2);
-                    --sp-icon-button-hover: rgba(255,255,255,0.15);
-                    
-                    /* Global Glassmorphism Variables */
-                    --sp-glass-bg-body: rgba(28, 28, 30, 0.85);
-                    --sp-glass-bg-menu: rgba(44, 44, 46, 0.85);
-                    --sp-glass-border: rgba(255, 255, 255, 0.15);
-                    --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-                }
-            }
-
-            .sp-container {
-                display: flex;
-                flex-direction: column;
-                max-height: calc(100vh - 220px);
-                min-height: 150px;
-                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                color: var(--sp-text-primary);
-                position: relative;
-                transition: box-shadow 0.35s cubic-bezier(0.25, 1, 0.5, 1), transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-container.sp-focus-ring {
-                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.22), 0 18px 40px rgba(0, 122, 255, 0.18);
-                transform: translateY(-2px);
-            }
-            .sp-resizer {
-                height: 8px;
-                width: 100%;
-                cursor: ns-resize;
-                position: absolute;
-                bottom: -4px;
-                left: 0;
-                z-index: 10;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-            }
-            .sp-resizer::after {
-                content: '';
-                width: 30px;
-                height: 3px;
-                background-color: var(--sp-border-medium);
-                border-radius: 3px;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-resizer:hover::after {
-                background-color: var(--sp-accent);
-            }
-            
-            /* Sticky Header with Glassmorphism */
-            .sp-controls { 
-                display: flex; gap: 8px; flex-shrink: 0; align-items: center; 
-                position: sticky; top: 0; z-index: 5;
-                padding: 12px 8px 12px 0;
-                margin-bottom: 0; /* Handled by padding now */
-                background: var(--sp-glass-bg-body);
-                backdrop-filter: blur(12px) saturate(180%);
-                -webkit-backdrop-filter: blur(12px) saturate(180%);
-                border-bottom: 1px solid var(--sp-border-light);
-                /* Fade mask for scrolling sources underneath */
-                mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
-                -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
-            }
-            .sp-controls::after {
-                /* Extra subtle shadow under the sticky header */
-                content: ''; position: absolute; bottom: -4px; left: 0; right: 0; height: 4px;
-                background: linear-gradient(to bottom, rgba(0,0,0,0.03), transparent);
-                pointer-events: none;
-            }
-            
-            #sources-list {
-                overflow-y: auto;
-                overflow-x: hidden;
-                flex-grow: 1;
-                min-height: 0;
-                padding-right: 4px;
-                padding-top: 4px;
-            }
-            #sources-list::-webkit-scrollbar {
-                width: 6px;
-            }
-            #sources-list::-webkit-scrollbar-track {
-                background: transparent;
-            }
-            #sources-list::-webkit-scrollbar-thumb {
-                background-color: var(--sp-border-medium);
-                border-radius: 12px;
-            }
-            .sp-search-container {
-                display: flex;
-                align-items: center;
-                flex-grow: 1;
-                position: relative;
-            }
-            #sp-search {
-                width: 100%;
-                box-sizing: border-box;
-                padding: 6px 32px 6px 12px;
-                border: 1px solid var(--sp-border-light);
-                border-radius: 12px;
-                font-size: 13px;
-                background-color: var(--sp-bg-secondary);
-                color: var(--sp-text-primary);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                outline: none;
-                box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
-                transform-origin: center;
-            }
-            #sp-search:focus {
-                background-color: var(--sp-bg-button);
-                border-color: var(--sp-accent);
-                box-shadow: 0 0 0 3px rgba(0,122,255,0.15);
-                transform: scale(1.01);
-            }
-            #sp-search::placeholder {
-                color: var(--sp-text-secondary);
-            }
-            
-            .sp-icon-button {
-                position: absolute;
-                right: 4px;
-                top: 50%;
-                transform: translateY(-50%);
-                background: none;
-                border: none;
-                padding: 4px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: var(--sp-text-secondary);
-                cursor: pointer;
-                border-radius: 4px;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-icon-button:hover {
-                background-color: var(--sp-icon-button-hover);
-                color: var(--sp-text-primary);
-                transform: translateY(-50%) scale(1.08);
-            }
-            .sp-icon-button:active {
-                transform: translateY(-50%) scale(0.85);
-            }
-            .sp-icon-button .google-symbols {
-                font-size: 18px;
-            }
-            
-            .sp-button {
-                position: relative;
-                overflow: hidden;
-                border: 1px solid var(--sp-border-light);
-                color: var(--sp-text-primary);
-                background-color: var(--sp-bg-button);
-                font-size: 13px;
-                font-weight: 500;
-                border-radius: 12px;
-                padding: 6px 12px;
-                cursor: pointer;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                white-space: nowrap;
-                box-shadow: var(--sp-shadow-button);
-            }
-            .sp-button:hover {
-                background-color: var(--sp-bg-button-hover);
-                border-color: var(--sp-border-medium);
-            }
-            .sp-button:active {
-                background-color: var(--sp-bg-button-active);
-                transform: scale(0.95);
-            }
-            .sp-button::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 50%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(128,128,128,0.15), transparent);
-                transform: skewX(-20deg);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-button:hover::after {
-                left: 150%;
-            }
-            
-            /* --- Ultra Premium Custom Animated Checkboxes --- */
-            .sp-checkbox { 
-                box-sizing: border-box;
-                appearance: none; -webkit-appearance: none; 
-                width: 18px; height: 18px; 
-                margin: 0; padding: 0;
-                border: 2px solid var(--sp-text-secondary); /* High contrast border so it's clearly visible in both modes */
-                border-radius: 6px; 
-                cursor: pointer; 
-                position: relative; 
-                flex-shrink: 0; 
-                background-color: var(--sp-bg-primary); 
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-checkbox:hover {
-                border-color: var(--sp-accent);
-                transform: scale(1.05);
-            }
-            .sp-checkbox:checked { 
-                background-color: var(--sp-accent); 
-                border-color: var(--sp-accent); 
-                /* Removed implicit animation */
-            }
-            /* Explicit user-interaction animation */
-            .sp-checkbox.is-animating:checked {
-                animation: checkbox-spring 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            
-            /* The hidden checkmark shape inside the box */
-            .sp-checkbox::before { 
-                content: ''; 
-                display: block; 
-                position: absolute; 
-                left: 0.5px; 
-                bottom: 6px; 
-                border: solid white; 
-                border-width: 0 2.5px 2.5px 0; /* Thicker checkmark */
-                border-radius: 1px;
-                transform: rotate(45deg); 
-                transform-origin: left bottom; /* Critical for growing outward correctly */
-                
-                /* Static base state for unselected */
-                width: 0; 
-                height: 0; 
-                opacity: 0;
-            }
-            
-            /* Static base state for successfully selected elements (avoiding re-render flickers) */
-            /* MUST BE LOWER SPECIFICITY OR DECLARED BEFORE THE ANIMATION CLASS */
-            .sp-checkbox:checked::before {
-                width: 4.5px; 
-                height: 10px; 
-                opacity: 1;
-            }
-
-            /* Animate the checkmark drawing in using an organic, non-linear sequence ONLY on user interaction */
-            .sp-checkbox.is-animating:checked::before { 
-                /* ease-out decelerates at the very end of the stroke */
-                animation: check-draw-organic 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards !important;
-                animation-delay: 0.1s !important; /* Let the checkbox pop start and settle a bit first */
-            }
-
-            @keyframes check-draw-organic {
-                0% {
-                    width: 0;
-                    height: 0;
-                    opacity: 0;
-                }
-                10% {
-                    width: 0;
-                    height: 0;
-                    opacity: 1;
-                }
-                40%  { width: 4.5px; height: 0;    opacity: 1; } /* Stroke 1: Draw short stem left-to-right */
-                100% { width: 4.5px; height: 10px; opacity: 1; } /* Stroke 2: Whip up the long stem bottom-to-top */
-            }
-
-            @keyframes checkbox-spring {
-                0% {
-                    transform: scale(1);
-                }
-                30% {
-                    transform: scale(0.7);
-                }
-                60% { transform: scale(1.15); } /* Overshoot */
-                100% {
-                    transform: scale(1);
-                }
-            }
-            .source-item, .group-header {
-                display: flex;
-                align-items: center;
-                padding: 6px 8px;
-                border-radius: 12px;
-                margin: 2px 0;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                color: var(--sp-text-primary);
-                position: relative;
-                z-index: 1;
-                transform-origin: left center;
-                cursor: pointer;
-            }
-            .source-item {
-                padding-left: 12px;
-                border: 1px solid transparent;
-            }
-            .group-header {
-                font-weight: 600;
-                background-color: var(--sp-bg-primary);
-            }
-            .source-item:hover, .group-header:hover {
-                background-color: var(--sp-bg-hover);
-                z-index: 2;
-                transform: translateX(3px);
-            }
-            .source-item:active, .group-header:active {
-                transform: translateX(3px) scale(0.98);
-            }
-            .sp-caret {
-                background: none;
-                border: none;
-                cursor: pointer;
-                padding: 0 2px;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                transform: rotate(0deg);
-                color: var(--sp-text-secondary);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .sp-caret .google-symbols {
-                font-size: 20px;
-            }
-            .sp-caret.collapsed {
-                transform: rotate(-90deg);
-            }
-            .icon-container {
-                flex-shrink: 0;
-                margin-right: 12px;
-                display: flex;
-                align-items: center;
-                color: var(--sp-text-secondary);
-                transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1);
-                cursor: pointer;
-            }
-            .icon-container:hover {
-                transform: scale(0.95);
-                opacity: 0.8;
-            }
-            .icon-container .google-symbols {
-                font-size: 16px;
-            }
-            .menu-container {
-                flex-shrink: 0;
-                margin-right: 8px;
-                opacity: 0;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                display: flex;
-                align-items: center;
-            }
-            .source-item:hover .menu-container {
-                opacity: 1;
-            }
-            .title-container, .group-title {
-                flex-grow: 1;
-                min-width: 0;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                overflow: hidden;
-                font-size: 13px;
-                color: var(--sp-text-primary);
-                letter-spacing: -0.01em;
-            }
-            .checkbox-container {
-                flex-shrink: 0;
-                margin-left: auto;
-                padding-left: 8px;
-                display: flex;
-                align-items: center;
-            }
-            .sp-more-button, .sp-move-to-folder-button, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
-                background: none;
-                border: none;
-                cursor: pointer;
-                border-radius: 12px;
-                width: 24px;
-                height: 24px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 0;
-                color: var(--sp-text-secondary);
-                flex-shrink: 0;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-more-button .google-symbols,
-            .sp-move-to-folder-button .google-symbols,
-            .sp-add-subgroup-button .google-symbols,
-            .sp-isolate-button .google-symbols,
-            .sp-edit-button .google-symbols,
-            .sp-delete-button .google-symbols {
-                font-size: 16px;
-            }
-            .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button {
-                display: flex;
-                opacity: 0;
-                transform: translateX(10px) scale(0.9);
-                pointer-events: none;
-                transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
-                margin-left: 2px;
-            }
-            .sp-more-button, .sp-move-to-folder-button {
-                margin-left: 2px;
-            }
-            .group-header:hover .sp-add-subgroup-button, .group-header:hover .sp-isolate-button, .group-header:hover .sp-edit-button, .group-header:hover .sp-delete-button {
-                opacity: 1;
-                transform: translateX(0) scale(1);
-                pointer-events: auto;
-            }
-            .group-title + .badge {
-                margin-left: auto;
-            }
-            .sp-more-button:hover, .sp-move-to-folder-button:hover, .sp-add-subgroup-button:hover, .sp-isolate-button:hover, .sp-edit-button:hover {
-                background-color: var(--sp-icon-button-hover);
-                color: var(--sp-text-primary);
-                transform: scale(1.1);
-            }
-            .sp-delete-button:hover {
-                background-color: rgba(255, 59, 48, 0.1);
-                color: var(--sp-accent-danger);
-                transform: scale(1.1);
-            }
-            .sp-more-button:active, .sp-move-to-folder-button:active, .sp-add-subgroup-button:active, .sp-isolate-button:active, .sp-edit-button:active, .sp-delete-button:active {
-                transform: scale(0.85);
-            }
-            .icon-color {
-                color: var(--sp-accent);
-                } .youtube-icon-color { color: var(--sp-accent-danger);
-                } .pdf-icon-color { color: var(--sp-accent-danger);
-            }
-            .group-container {
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                margin-bottom: 2px;
-            }
-            .source-item.gated, .group-container.gated > .group-children {
-                opacity: 0.5;
-                filter: grayscale(50%);
-            }
-            .failed-source {
-                cursor: not-allowed;
-            }
-            .failed-source .title-container, .failed-source .icon-container {
-                color: var(--sp-accent-danger) !important;
-            }
-            .failed-source .sp-checkbox {
-                opacity: 0.5;
-                cursor: not-allowed;
-                border-color: var(--sp-accent-danger);
-            }
-            
-            /* Loading State Visuals */
-            .loading-source {
-                cursor: wait;
-            }
-            .loading-source .title-container { 
-                opacity: 0.6; 
-                animation: pulse-text 2s cubic-bezier(0.25, 1, 0.5, 1) infinite; 
-            }
-            .loading-source .sp-checkbox {
-                opacity: 0;
-                pointer-events: none;
-            }
-            .sp-spinner {
-                width: 16px;
-                height: 16px;
-                border: 2px solid var(--sp-border-medium);
-                border-top-color: var(--sp-accent);
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-            }
-            @keyframes spin {
-                100% { transform: rotate(360deg);
-                };
-            }
-            @keyframes pulse-text {
-                0%, 100% {
-                    opacity: 0.8;
-                }
-                50% {
-                    opacity: 0.4;
-                }
-            }
-            .group-children { 
-                padding-left: 8px; 
-                border-left: 1px solid var(--sp-border-light); 
-                margin-left: 18px; 
-                margin-top: 2px; 
-                overflow: hidden; 
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                opacity: 1;
-                /* By default, let height be auto. JS will set explicit heights during animation. */
-            }
-            .group-children.collapsed {
-                height: 0;
-                opacity: 0;
-                margin-top: 0;
-                border: none;
-            }
-            
-            /* Folder Entry Animation */
-            .sp-folder-enter {
-                animation: sp-folder-pop 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-                transform-origin: top center;
-            }
-            @keyframes sp-folder-pop {
-                0% {
-                    opacity: 0;
-                    transform: translateY(-10px) translateX(-5px) scale(0.95);
-                }
-                100% {
-                    opacity: 1;
-                    transform: translateY(0) translateX(0) scale(1);
-                }
-            }
-            
-            /* --- Move to Folder Modal & Overlay --- */
-            @keyframes sp-modal-enter {
-                0% {
-                    opacity: 0;
-                    transform: translate(-50%, -46%) scale(0.95);
-                }
-                100% {
-                    opacity: 1;
-                    transform: translate(-50%, -50%) scale(1);
-                }
-            }
-            @keyframes sp-modal-leave {
-                0% {
-                    opacity: 1;
-                    transform: translate(-50%, -50%) scale(1);
-                }
-                100% {
-                    opacity: 0;
-                    transform: translate(-50%, -54%) scale(0.95);
-                }
-            }
-            .sp-overlay-backdrop {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.2);
-                z-index: 10000;
-                opacity: 0;
-                transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                pointer-events: none;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                backdrop-filter: blur(4px);
-            }
-            .sp-overlay-backdrop.visible {
-                opacity: 1;
-                pointer-events: auto;
-            }
-            .sp-folder-modal {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                width: 320px;
-                max-height: 80vh;
-                transform: translate(-50%, -50%);
-                background: rgba(255, 255, 255, 0.85);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
-                border: 1px solid rgba(0, 0, 0, 0.05);
-                border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-                z-index: 10001;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                opacity: 0;
-                pointer-events: none;
-            }
-            .sp-overlay-backdrop {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.2);
-                z-index: 10000;
-                opacity: 0;
-                transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                pointer-events: none;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                backdrop-filter: blur(4px);
-            }
-            .sp-overlay-backdrop.visible {
-                opacity: 1;
-                pointer-events: auto;
-            }
-            .sp-folder-modal {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                width: 320px;
-                max-height: 80vh;
-                transform: translate(-50%, -50%);
-                background: rgba(255, 255, 255, 0.85);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
-                border: 1px solid rgba(0, 0, 0, 0.05);
-                border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-                z-index: 10001;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                opacity: 0;
-                pointer-events: none;
-            }
-            
-            /* Adjust for dark mode specifically */
-            @media (prefers-color-scheme: dark) {
-                .sp-folder-modal {
-                    background: rgba(30, 30, 32, 0.85);
-                    border-color: rgba(255,255,255,0.1);
-                    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-                }
-                .sp-overlay-backdrop {
-                    background: rgba(0, 0, 0, 0.6);
-                }
-                .sp-folder-modal-header,
-                .sp-folder-modal-footer {
-                    border-color: rgba(255,255,255,0.05);
-                }
-            }
-            
-            .sp-folder-modal.visible {
-                opacity: 1;
-                pointer-events: auto;
-                animation: sp-modal-enter 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-            }
-            .sp-folder-modal.closing {
-                animation: sp-modal-leave 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-            }
-            .sp-folder-modal-header {
-                padding: 16px 20px;
-                border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-            }
-            .sp-folder-modal-title {
-                font-size: 16px;
-                font-weight: 500;
-                color: var(--sp-text-primary);
-                margin: 0;
-            }
-            .sp-folder-modal-content {
-                padding: 8px;
-                overflow-y: auto;
-                flex-grow: 1;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-            }
-            
-            /* Vertical option list style */
-            .sp-folder-option {
-                display: flex;
-                align-items: center;
-                padding: 10px 12px;
-                border-radius: 10px;
-                cursor: pointer;
-                transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-                background: transparent;
-                border: none;
-                width: 100%;
-                text-align: left;
-            }
-            .sp-folder-option:hover {
-                background: var(--sp-bg-hover);
-                transform: scale(0.98);
-            }
-            .sp-folder-option .google-symbols {
-                font-size: 20px;
-                color: var(--sp-accent);
-                margin-right: 12px;
-                opacity: 0.8;
-            }
-            .sp-folder-option-title {
-                font-size: 14px;
-                color: var(--sp-text-primary);
-                flex-grow: 1;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                font-weight: normal;
-            }
-            
-            .sp-folder-empty {
-                padding: 24px 16px;
-                text-align: center;
-                color: var(--sp-text-tertiary);
-                font-size: 14px;
-            }
-            .sp-folder-modal-footer {
-                padding: 12px 16px;
-                display: flex;
-                justify-content: flex-end;
-                border-top: 1px solid rgba(0, 0, 0, 0.05);
-                gap: 8px;
-            }
-            .sp-modal-cancel {
-                background: var(--sp-bg-secondary);
-                color: var(--sp-text-primary);
-                border: 1px solid var(--sp-border-light);
-                padding: 8px 16px;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-modal-cancel:hover {
-                background: var(--sp-bg-hover);
-                transform: scale(0.98);
-            }
-
-            .ungrouped-header {
-                margin: 16px 0 6px 8px;
-                color: var(--sp-text-secondary);
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-            }
-
-            .source-item.dragging,
-            .group-header.dragging {
-                opacity: 0.95;
-                background-color: var(--sp-bg-button);
-                transform: scale(1.03) translateY(-2px);
-                box-shadow: var(--sp-shadow-toast);
-                border: 1px solid var(--sp-accent);
-                z-index: 10;
-                cursor: grabbing;
-                transition: none;
-            }
-
-            .group-container.drag-into > .group-header {
-                background-color: var(--sp-drag-into-bg);
-                border-radius: 12px;
-            }
-
-            .drag-over-top {
-                border-top: 2px solid var(--sp-accent);
-                border-top-left-radius: 0;
-                border-top-right-radius: 0;
-            }
-
-            .drag-over-bottom {
-                border-bottom: 2px solid var(--sp-accent);
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
-            }
-
-            .sp-toast {
-                visibility: hidden;
-                min-width: 200px;
-                background-color: var(--sp-bg-toast);
-                color: var(--sp-text-toast);
-                text-align: center;
-                border-radius: 12px;
-                padding: 12px 16px;
-                position: fixed;
-                z-index: 9999;
-                left: 50%;
-                bottom: 30px;
-                transform: translateX(-50%) translateY(20px) scale(0.9);
-                font-size: 14px;
-                font-weight: 500;
-                opacity: 0;
-                filter: blur(4px);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                backdrop-filter: blur(10px);
-                box-shadow: var(--sp-shadow-toast);
-            }
-
-            .sp-toast.show {
-                visibility: visible;
-                opacity: 1;
-                transform: translateX(-50%) translateY(0) scale(1);
-                filter: blur(0);
-            }
-
-            .badge {
-                font-size: 11px;
-                color: var(--sp-text-badge);
-                margin-left: 6px;
-                font-weight: 500;
-                font-variant-numeric: tabular-nums;
-                flex-shrink: 0;
-                background: var(--sp-bg-badge);
-                padding: 2px 6px;
-                border-radius: 12px;
-            }
-
-            .sp-toggle-switch {
-                position: relative;
-                display: inline-block;
-                width: 36px;
-                height: 20px;
-                margin: 0 8px 0 2px;
-                flex-shrink: 0;
-                transform: scale(0.9);
-            }
-            .sp-toggle-switch:hover .sp-toggle-slider {
-                box-shadow: inset 0 0 0 1px var(--sp-border-medium);
-            }
-
-            .sp-toggle-switch .sp-group-toggle-checkbox {
-                opacity: 0;
-                width: 0;
-                height: 0;
-            }
-
-            .sp-toggle-slider {
-                position: absolute;
-                cursor: pointer;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background-color: var(--sp-bg-switch);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                border-radius: 18px;
-                box-shadow: inset 0 0 0 1px var(--sp-border-light);
-            }
-
-            .sp-toggle-slider:before {
-                position: absolute;
-                content: "";
-                height: 16px;
-                width: 16px;
-                left: 2px;
-                bottom: 2px;
-                background-color: var(--sp-bg-switch-thumb);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                border-radius: 50%;
-                box-shadow: var(--sp-shadow-switch-thumb);
-            }
-
-            .sp-group-toggle-checkbox:checked + .sp-toggle-slider {
-                background-color: var(--sp-accent-success);
-                box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
-            }
-
-            .sp-group-toggle-checkbox:checked + .sp-toggle-slider:before {
-                transform: translateX(16px);
-            }
-            
-            /* --- Batch Mode Additions --- */
-            .source-item.selected-for-batch {
-                background-color: rgba(0, 122, 255, 0.05);
-                border: 1px dashed var(--sp-accent);
-            }
-            .sp-batch-checkbox {
-                border-color: var(--sp-accent);
-                background-color: rgba(0, 122, 255, 0.1);
-            }
-            .sp-batch-checkbox:checked {
-                background-color: var(--sp-accent);
-                border-color: var(--sp-accent);
-            }
-            .sp-batch-action-bar {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 8px;
-                padding: 12px 16px;
-                margin-top: 8px;
-                position: sticky;
-                bottom: 8px;
-                background: var(--sp-glass-bg-body, rgba(255, 255, 255, 0.85));
-                backdrop-filter: blur(20px) saturate(180%);
-                -webkit-backdrop-filter: blur(20px) saturate(180%);
-                border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.05));
-                border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-                z-index: 5;
-            }
-            .sp-batch-actions {
-                display: flex;
-                gap: 8px;
-            }
-            .sp-batch-add-folder-btn {
-                background-color: var(--sp-accent);
-                color: white;
-                border-color: transparent;
-            }
-            .sp-batch-add-folder-btn:hover {
-                background-color: #0066cc;
-            }
-            .sp-batch-add-folder-btn:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
-            .sp-confirm-delete-btn {
-                background-color: var(--sp-accent-danger);
-                color: white;
-                border-color: transparent;
-            }
-            .sp-confirm-delete-btn:hover {
-                background-color: #ff2d20;
-            }
-            .sp-confirm-delete-btn:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
-
-            /* =========================================
-               UI Polish Part 2
-               ========================================= */
-
-            /* 1. Empty Drop Zone Styling */
-            .sp-empty-state {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 16px;
-                margin: 4px 8px 8px 18px;
-                border: 2px dashed var(--sp-border-medium);
-                border-radius: 12px;
-                color: var(--sp-text-secondary);
-                font-size: 13px;
-                font-weight: 500;
-                background-color: rgba(0, 0, 0, 0.01);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            @media (prefers-color-scheme: dark) {
-                .sp-empty-state {
-                    background-color: rgba(255, 255, 255, 0.01);
-                }
-            }
-            .group-container.drag-into > .group-children > .sp-empty-state {
-                background-color: var(--sp-drag-into-bg);
-                border-color: var(--sp-accent);
-                color: var(--sp-accent);
-                transform: scale(1.02);
-            }
-            
-            /* 2. Global Icon Button Click Feedback */
-            .sp-icon-button {
-                transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-icon-button:active {
-                transform: scale(0.85);
-            }
-
-
-            /* =========================================
-               UI Polish Part 3: Typography & Layout
-               ========================================= */
-
-            /* 1. Sticky Controls with Glassmorphism */
-            .sp-controls {
-                position: sticky;
-                top: 0;
-                z-index: 20;
-                background: var(--sp-glass-bg-body, rgba(255, 255, 255, 0.85));
-                backdrop-filter: blur(24px) saturate(180%);
-                -webkit-backdrop-filter: blur(24px) saturate(180%);
-                padding-bottom: 8px;
-                margin-bottom: 4px;
-                border-bottom: 1px solid transparent;
-                transition: border-color 0.3s ease;
-            }
-            /* Add a subtle border when scrolling */
-            #sources-list:not(:empty) {
-                padding-top: 4px;
-            }
-
-            /* 2. Advanced Typography & Line Clamp */
-            .title-container, .group-title {
-                /* Replace single line ellipsis with up to 2 lines */
-                white-space: normal;
-                display: -webkit-box;
-                -webkit-line-clamp: 2;
-                -webkit-box-orient: vertical;
-                overflow: hidden;
-                line-height: 1.4;
-                margin-right: 4px;
-            }
-            .group-name {
-                font-weight: 500;
-                letter-spacing: 0.1px;
-            }
-            
-            /* 3. Enhanced Modal Depth (Material 3) */
-            .sp-folder-modal {
-                box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0,0,0,0.1);
-                transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
-            }
-            @media (prefers-color-scheme: dark) {
-                .sp-folder-modal {
-                    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255,255,255,0.1);
-                }
-            }
-
-            .sp-cancel-batch-btn {
-                background: transparent;
-                border: 1px solid var(--sp-border-light);
-            }
-
-            /* =========================================
-               UI Polish & Enhancements
-               ========================================= */
-
-            /* 1. Custom Webkit Scrollbar */
-            #sources-list::-webkit-scrollbar {
-                width: 6px;
-                height: 6px;
-            }
-            #sources-list::-webkit-scrollbar-track {
-                background: transparent;
-            }
-            #sources-list::-webkit-scrollbar-thumb {
-                background: rgba(150, 150, 150, 0.3);
-                border-radius: 10px;
-            }
-            #sources-list::-webkit-scrollbar-thumb:hover {
-                background: rgba(150, 150, 150, 0.6);
-            }
-
-            /* 2. Tree-view Hierarchy Lines & Item Styling */
-            .source-item {
-                border-radius: 8px;
-                margin-bottom: 2px;
-                transition: background-color 0.2s ease, transform 0.2s ease;
-            }
-            .source-item:hover {
-                background-color: var(--sp-bg-hover);
-            }
-            .group-children {
-                border-left: 2px solid var(--sp-border-light) !important;
-                border-radius: 0 0 0 6px;
-                transition: border-color 0.3s ease, height 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease;
-            }
-            .group-container:hover > .group-children {
-                border-left-color: var(--sp-accent) !important;
-            }
-
-            /* 3. Micro-interactions & Focus Rings */
-            #sp-search {
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            #sp-search:focus {
-                outline: none;
-                border-color: var(--sp-accent);
-                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15); /* Apple style focus ring */
-            }
-            #sp-search:focus + #sp-search-btn .google-symbols {
-                color: var(--sp-accent);
-            }
-            
-            /* Enhanced Drag Feedback */
-            .drag-over-top {
-                border-top: 2px solid var(--sp-accent) !important;
-                position: relative;
-            }
-            .drag-over-top::before {
-                content: '';
-                position: absolute;
-                top: -5px;
-                left: -5px;
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background-color: var(--sp-accent);
-                border: 2px solid var(--sp-bg-primary, white);
-                z-index: 10;
-            }
-            
-            .drag-over-bottom {
-                border-bottom: 2px solid var(--sp-accent) !important;
-                position: relative;
-            }
-            .drag-over-bottom::after {
-                content: '';
-                position: absolute;
-                bottom: -5px;
-                left: -5px;
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background-color: var(--sp-accent);
-                border: 2px solid var(--sp-bg-primary, white);
-                z-index: 10;
-            }
-        `;
+        style.textContent = contentStyleText;
         shadowRoot.appendChild(style);
 
-        const containerHtml = el('div', { className: 'sp-container' }, [
-            el('div', { className: 'sp-controls' }, [
-                el('button', { id: 'sp-new-group-btn', className: 'sp-button' }, [chrome.i18n.getMessage("ui_new_group")]),
-                el('button', { id: 'sp-batch-action-btn', className: 'sp-button' }, [chrome.i18n.getMessage("ui_batch_action")]),
-                el('div', { className: 'sp-search-container' }, [
-                    el('input', { id: 'sp-search', placeholder: chrome.i18n.getMessage("ui_filter_sources") }),
-                    el('button', { id: 'sp-search-btn', className: 'sp-icon-button', title: 'Search' }, [
-                        el('span', { className: 'google-symbols' }, ['search'])
-                    ])
-                ])
-            ]),
-            el('div', { id: 'sources-list' }),
-            el('div', { className: 'sp-resizer' })
-        ]);
+        const containerHtml = createManagerShell(el, chrome);
         shadowRoot.appendChild(containerHtml);
 
         // Handle Resizing
@@ -3007,52 +2210,10 @@
             document.addEventListener('change', handleOriginalCheckboxChange, true);
 
             // --- Global Native Glassmorphism Injection ---
-            if (!document.getElementById('sp-global-glassmorphism')) {
+            if (!document.getElementById(GLOBAL_OVERLAY_STYLE_ID)) {
                 const globalStyle = document.createElement('style');
-                globalStyle.id = 'sp-global-glassmorphism';
-                globalStyle.textContent = `
-                    /* --------- Global Apple HIG Glassmorphism Overrides --------- */
-                    /* Note: Modifying Angular Material generic overlay/dialog structures */
-                    
-                    /* 1. Popover Menus (More button floating menus) */
-                    body .cdk-overlay-container .mat-mdc-menu-panel,
-                    body .cdk-overlay-container .mat-menu-panel {
-                        background-color: var(--sp-glass-bg-menu, rgba(255, 255, 255, 0.85)) !important;
-                        backdrop-filter: blur(20px) saturate(150%) !important;
-                        -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
-                        border-radius: 12px !important;
-                        border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.1)) !important;
-                        box-shadow: var(--sp-glass-shadow, 0 8px 32px rgba(0, 0, 0, 0.12)) !important;
-                        overflow: hidden !important;
-                    }
-                    
-                    /* Menu item hover effects inside the glass panel */
-                    body .cdk-overlay-container .mat-mdc-menu-item:hover,
-                    body .cdk-overlay-container .mat-menu-item:hover {
-                        background-color: rgba(128, 128, 128, 0.1) !important;
-                    }
-
-                    /* 2. Dialogs / Modals (New Note, Rename, Delete Confirmation) */
-                    body .cdk-overlay-container .mat-mdc-dialog-surface,
-                    body .cdk-overlay-container .mat-dialog-container {
-                        background-color: var(--sp-glass-bg-body, rgba(255, 255, 255, 0.75)) !important;
-                        backdrop-filter: blur(24px) saturate(180%) !important;
-                        -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-                        border-radius: 16px !important;
-                        border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.1)) !important;
-                        box-shadow: var(--sp-glass-shadow, 0 8px 32px rgba(0, 0, 0, 0.12)) !important;
-                    }
-
-                    /* Respect system dark mode for global variables if not defined in shadow root */
-                    @media (prefers-color-scheme: dark) {
-                        body .cdk-overlay-container {
-                            --sp-glass-bg-body: rgba(28, 28, 30, 0.85);
-                            --sp-glass-bg-menu: rgba(44, 44, 46, 0.85);
-                            --sp-glass-border: rgba(255, 255, 255, 0.15);
-                            --sp-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-                        }
-                    }
-                `;
+                globalStyle.id = GLOBAL_OVERLAY_STYLE_ID;
+                globalStyle.textContent = globalOverlayStyleText;
                 document.head.appendChild(globalStyle);
             }
 
@@ -3070,7 +2231,14 @@
             // 2. Removed CPU-intensive Heartbeat Polling
             // Relying purely on MutationObserver is much more efficient.
 
-            loadState((loadedEnabledMap) => { scanAndSyncSources(loadedEnabledMap, true); render(); });
+            loadState((loadedState) => {
+                const shouldUpgradeStorage = scanAndSyncSources(loadedState, true);
+                render();
+                if (shouldUpgradeStorage) {
+                    pendingStorageUpgrade = false;
+                    saveState();
+                }
+            });
         } else {
             managerStatusReason = 'panel_header_missing';
             showCrashBanner("NotebookLM Source Management: Initialization failed. Could not locate panel header.");
@@ -3111,8 +2279,14 @@
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             areAllAncestorsEnabled,
+            buildPersistableState,
+            createSourceDescriptor,
             findFreshCheckbox,
+            normalizeLoadedState,
+            processClickQueue,
             removeGroupFromTree,
+            scanAndSyncSources,
+            syncSourceToPage,
             parentMap,
             groupsById,
             executeBatchDelete,
@@ -3126,9 +2300,13 @@
             focusManagerPanel,
             handleManagerMessage,
             handleRouteChanged,
+            recoverManagerForRoute,
+            _getClickQueueLength: () => clickQueue.length,
             _getIsDeletingSources: () => isDeletingSources,
+            _getIsSyncingState: () => isSyncingState,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _getFreshRowCache: () => freshRowCache,
+            _getPendingStorageUpgrade: () => pendingStorageUpgrade,
             _setCustomHeight: (val) => { customHeight = val; },
             _setManagerStatusReason: (val) => { managerStatusReason = val; },
             _setProjectId: (val) => { projectId = val; },
@@ -3151,6 +2329,9 @@
                 clickQueue = [];
                 isProcessingQueue = false;
                 isSyncingState = false;
+                pendingStorageUpgrade = false;
+                activeRouteRecoveryToken = 0;
+                routeRecoveryTimeout = null;
                 managerStatusReason = 'manager_not_ready';
                 if (focusHighlightTimeout) {
                     clearTimeout(focusHighlightTimeout);

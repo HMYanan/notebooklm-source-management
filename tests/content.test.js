@@ -1,9 +1,11 @@
 global.Node = class {};
+const loadContentModule = require('./helpers/load-content-module');
 
 const setupGlobalMocks = () => {
     global.window = {
         location: {
             pathname: '/notebook/testproject',
+            origin: 'https://notebooklm.google.com',
             reload: jest.fn()
         }
     };
@@ -17,6 +19,7 @@ const setupGlobalMocks = () => {
         })),
         appendChild: jest.fn(),
         setAttribute: jest.fn(),
+        getAttribute: jest.fn(() => null),
         addEventListener: jest.fn(),
         remove: jest.fn(),
         classList: { add: jest.fn(), remove: jest.fn() },
@@ -35,10 +38,18 @@ const setupGlobalMocks = () => {
         getElementById: jest.fn(() => ({ addEventListener: jest.fn() })),
         createElement: jest.fn(mockElement),
         createTextNode: jest.fn(),
+        head: {
+            appendChild: jest.fn()
+        },
         body: {
+            children: [],
             prepend: jest.fn(),
             contains: jest.fn(() => true),
             click: jest.fn(),
+        },
+        documentElement: {
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn()
         },
         addEventListener: jest.fn(),
         removeEventListener: jest.fn(),
@@ -61,6 +72,63 @@ const setupGlobalMocks = () => {
     global.isDescendant = utils.isDescendant;
 };
 
+const createMockSourceRow = ({
+    title,
+    ariaLabel = '',
+    checked = false,
+    disabled = false,
+    iconName = 'article',
+    stableToken = null,
+    href = null,
+    loading = false
+}) => {
+    const checkbox = {
+        checked,
+        disabled,
+        click: jest.fn(),
+        getAttribute: jest.fn((attr) => (attr === 'aria-label' ? ariaLabel : null))
+    };
+    const titleEl = { textContent: title };
+    const iconEl = {
+        textContent: iconName,
+        classList: []
+    };
+
+    const tokenNode = stableToken ? {
+        getAttribute: jest.fn((attr) => {
+            if (attr === 'data-source-id') return stableToken;
+            if (attr === 'href') return href;
+            return null;
+        })
+    } : null;
+
+    const hrefNode = href ? {
+        getAttribute: jest.fn((attr) => (attr === 'href' ? href : null))
+    } : null;
+
+    const row = {
+        getAttribute: jest.fn((attr) => {
+            if (attr === 'data-source-id') return stableToken;
+            if (attr === 'href') return href;
+            return null;
+        }),
+        querySelector: jest.fn((selector) => {
+            if (selector.includes('source-title')) return titleEl;
+            if (selector.includes('checkbox')) return checkbox;
+            if (selector.includes('mat-icon')) return iconEl;
+            if (loading && selector.includes('[role="progressbar"]')) return { role: 'progressbar' };
+            return null;
+        }),
+        querySelectorAll: jest.fn((selector) => {
+            if (selector === '[data-source-id]' && tokenNode) return [tokenNode];
+            if (selector === '[href]' && hrefNode) return [hrefNode];
+            return [];
+        })
+    };
+
+    return { row, checkbox, titleEl, iconEl };
+};
+
 const teardownGlobalMocks = () => {
     delete global.window;
     delete global.document;
@@ -73,6 +141,10 @@ const teardownGlobalMocks = () => {
     delete global.debounce;
     delete global.isDescendant;
     delete global.queueMicrotask;
+    delete global.NSM_CONTENT_CONFIG;
+    delete global.NSM_CONTENT_STYLE_TEXT;
+    delete global.NSM_GLOBAL_OVERLAY_STYLE_TEXT;
+    delete global.NSM_CREATE_MANAGER_SHELL;
 };
 
 describe('areAllAncestorsEnabled', () => {
@@ -83,7 +155,7 @@ describe('areAllAncestorsEnabled', () => {
         setupGlobalMocks();
         global.setTimeout = jest.fn();
 
-        const mod = require('../src/content/index.js');
+        const mod = loadContentModule();
         areAllAncestorsEnabled = mod.areAllAncestorsEnabled;
         parentMap = mod.parentMap;
         groupsById = mod.groupsById;
@@ -143,7 +215,7 @@ describe('executeBatchDelete', () => {
         global.console.warn = jest.fn();
         global.console.error = jest.fn();
 
-        mod = require('../src/content/index.js');
+        mod = loadContentModule();
         if (mod._resetState) mod._resetState();
     });
 
@@ -325,7 +397,7 @@ describe('saveState', () => {
             }
         };
 
-        mod = require('../src/content/index.js');
+        mod = loadContentModule();
         if (mod._resetState) mod._resetState();
     });
 
@@ -338,7 +410,7 @@ describe('saveState', () => {
         expect(global.chrome.runtime.sendMessage).not.toHaveBeenCalled();
     });
 
-    it.skip('correctly extracts persistableState and calls storage set', () => {
+    it('correctly extracts persistableState and calls storage set', () => {
         const projectId = 'test_project_id';
         if (mod._setProjectId) mod._setProjectId(projectId); else mod.projectId = projectId;
 
@@ -349,9 +421,9 @@ describe('saveState', () => {
         mod.groupsById.set('group1', { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] });
         mod.groupsById.set('group2', { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] });
 
-        mod.sourcesByKey.set('source1', { enabled: true });
-        mod.sourcesByKey.set('source2', { enabled: false });
-        mod.sourcesByKey.set('source3', { enabled: true });
+        mod.sourcesByKey.set('source1', { enabled: true, title: 'Source 1', normalizedTitle: 'source 1', fingerprint: 'source 1||article', identityType: 'stable-token' });
+        mod.sourcesByKey.set('source2', { enabled: false, title: 'Source 2', normalizedTitle: 'source 2', fingerprint: 'source 2||article', identityType: 'stable-token' });
+        mod.sourcesByKey.set('source3', { enabled: true, title: 'Source 3', normalizedTitle: 'source 3', fingerprint: 'source 3||article', identityType: 'fingerprint' });
 
         mod._setCustomHeight(500);
 
@@ -360,16 +432,35 @@ describe('saveState', () => {
 
         const expectedKey = `sourcesPlusState_${projectId}`;
         const expectedPersistableState = {
+            schemaVersion: 2,
             groups: ['group1', 'group2'],
             groupsById: {
                 'group1': { id: 'group1', title: 'Group 1', children: [{ type: 'source', key: 'source1' }] },
                 'group2': { id: 'group2', title: 'Group 2', children: [{ type: 'source', key: 'source2' }] }
             },
             ungrouped: ['source3'],
-            enabledMap: {
-                'source1': true,
-                'source2': false,
-                'source3': true
+            sourceStateById: {
+                'source1': {
+                    enabled: true,
+                    title: 'Source 1',
+                    normalizedTitle: 'source 1',
+                    fingerprint: 'source 1||article',
+                    identityType: 'stable-token'
+                },
+                'source2': {
+                    enabled: false,
+                    title: 'Source 2',
+                    normalizedTitle: 'source 2',
+                    fingerprint: 'source 2||article',
+                    identityType: 'stable-token'
+                },
+                'source3': {
+                    enabled: true,
+                    title: 'Source 3',
+                    normalizedTitle: 'source 3',
+                    fingerprint: 'source 3||article',
+                    identityType: 'fingerprint'
+                }
             },
             customHeight: 500
         };
@@ -381,7 +472,7 @@ describe('saveState', () => {
         );
     });
 
-    it.skip('handles potential errors during debouncedStorageSet', () => {
+    it('handles potential errors during debouncedStorageSet', () => {
         const projectId = 'test_project_id';
         if (mod._setProjectId) mod._setProjectId(projectId); else mod.projectId = projectId;
 
@@ -403,6 +494,290 @@ describe('saveState', () => {
     });
 });
 
+describe('loadState', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+        global.setTimeout = (cb) => {
+            cb();
+            return 1;
+        };
+        global.clearTimeout = jest.fn();
+        mod = loadContentModule();
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('returns null when projectId is missing', () => {
+        const callback = jest.fn();
+        mod._setProjectId(null);
+
+        mod.loadState(callback);
+
+        expect(callback).toHaveBeenCalledWith(null);
+    });
+
+    it('restores v2 state and custom height', () => {
+        const callback = jest.fn();
+        const container = { style: {} };
+        mod._setProjectId('test-project');
+        mod._setShadowRootForTest({
+            host: { isConnected: true },
+            querySelector: jest.fn((selector) => (selector === '.sp-container' ? container : null))
+        });
+
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            cb({
+                data: {
+                    schemaVersion: 2,
+                    groups: ['group1'],
+                    groupsById: {
+                        group1: { id: 'group1', title: 'Group', children: [] }
+                    },
+                    ungrouped: ['source1'],
+                    sourceStateById: {
+                        source1: {
+                            enabled: true,
+                            title: 'Source 1',
+                            normalizedTitle: 'source 1',
+                            fingerprint: 'source 1||article',
+                            identityType: 'stable-token'
+                        }
+                    },
+                    customHeight: 420
+                }
+            });
+        });
+
+        mod.loadState(callback);
+
+        expect(callback).toHaveBeenCalledWith({
+            schemaVersion: 2,
+            groups: ['group1'],
+            groupsById: {
+                group1: { id: 'group1', title: 'Group', children: [] }
+            },
+            ungrouped: ['source1'],
+            sourceStateById: {
+                source1: {
+                    enabled: true,
+                    title: 'Source 1',
+                    normalizedTitle: 'source 1',
+                    fingerprint: 'source 1||article',
+                    identityType: 'stable-token'
+                }
+            },
+            customHeight: 420
+        });
+        expect(container.style.height).toBe('420px');
+        expect(mod._getPendingStorageUpgrade()).toBe(false);
+    });
+
+    it('normalizes legacy state and marks it for migration', () => {
+        const callback = jest.fn();
+        mod._setProjectId('test-project');
+
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            cb({
+                data: {
+                    groups: ['group1'],
+                    groupsById: {
+                        group1: { id: 'group1', title: 'Group', children: [{ type: 'source', key: 'source_legacy' }] }
+                    },
+                    ungrouped: ['source_legacy_2'],
+                    enabledMap: {
+                        source_legacy: false
+                    },
+                    customHeight: 300
+                }
+            });
+        });
+
+        mod.loadState(callback);
+
+        expect(callback).toHaveBeenCalledWith({
+            schemaVersion: 1,
+            groups: ['group1'],
+            groupsById: {
+                group1: { id: 'group1', title: 'Group', children: [{ type: 'source', key: 'source_legacy' }] }
+            },
+            ungrouped: ['source_legacy_2'],
+            legacyEnabledMap: {
+                source_legacy: false
+            },
+            customHeight: 300
+        });
+        expect(mod._getPendingStorageUpgrade()).toBe(true);
+    });
+
+    it('falls back to null when runtime messaging fails', () => {
+        const callback = jest.fn();
+        mod._setProjectId('test-project');
+
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            global.chrome.runtime.lastError = { message: 'Extension unavailable' };
+            cb({});
+        });
+
+        mod.loadState(callback);
+
+        expect(callback).toHaveBeenCalledWith(null);
+        global.chrome.runtime.lastError = null;
+    });
+});
+
+describe('scanAndSyncSources', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+        global.setTimeout = (cb) => {
+            cb();
+            return 1;
+        };
+        global.clearTimeout = jest.fn();
+        mod = loadContentModule();
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('hydrates v2 state, appends new sources, and preserves loading metadata', () => {
+        const first = createMockSourceRow({ title: 'First Source', stableToken: 'doc-1', checked: true });
+        const second = createMockSourceRow({ title: 'First Source', stableToken: null, iconName: 'video_youtube', loading: true });
+        const descriptorA = mod.createSourceDescriptor(first.row, new Map(), new Map());
+
+        global.document.querySelectorAll = jest.fn((selector) => (
+            mod.DEPS.row.includes(selector) ? [first.row, second.row] : []
+        ));
+
+        const shouldUpgrade = mod.scanAndSyncSources({
+            schemaVersion: 2,
+            groups: ['group1'],
+            groupsById: {
+                group1: { id: 'group1', title: 'Pinned', children: [{ type: 'source', key: descriptorA.key }] }
+            },
+            ungrouped: [],
+            sourceStateById: {
+                [descriptorA.key]: {
+                    enabled: false,
+                    title: 'First Source',
+                    normalizedTitle: 'first source',
+                    fingerprint: descriptorA.fingerprint,
+                    identityType: descriptorA.identityType
+                }
+            }
+        }, true);
+
+        const secondKey = mod.state.ungrouped[0];
+        expect(shouldUpgrade).toBe(false);
+        expect(mod.sourcesByKey.get(descriptorA.key).enabled).toBe(false);
+        expect(mod.groupsById.get('group1').children[0].key).toBe(descriptorA.key);
+        expect(secondKey).toBeDefined();
+        expect(mod.sourcesByKey.get(secondKey).iconName).toBe('smart_display');
+        expect(mod.sourcesByKey.get(secondKey).isDisabled).toBe(true);
+        expect(mod.sourcesByKey.get(secondKey).isLoading).toBe(true);
+    });
+
+    it('migrates legacy source keys to v2 ids and marks storage for rewrite', () => {
+        const legacyRow = createMockSourceRow({ title: 'Legacy Source', ariaLabel: 'Legacy Source', stableToken: 'legacy-doc', checked: true });
+        const descriptor = mod.createSourceDescriptor(legacyRow.row, new Map(), new Map());
+
+        global.document.querySelectorAll = jest.fn((selector) => (
+            mod.DEPS.row.includes(selector) ? [legacyRow.row] : []
+        ));
+
+        const shouldUpgrade = mod.scanAndSyncSources(mod.normalizeLoadedState({
+            groups: ['group1'],
+            groupsById: {
+                group1: { id: 'group1', title: 'Migrated', children: [{ type: 'source', key: descriptor.legacyKey }] }
+            },
+            ungrouped: [],
+            enabledMap: {
+                [descriptor.legacyKey]: false
+            }
+        }), true);
+
+        expect(shouldUpgrade).toBe(true);
+        expect(mod.groupsById.get('group1').children[0].key).toBe(descriptor.key);
+        expect(mod.sourcesByKey.get(descriptor.key).enabled).toBe(false);
+    });
+
+    it('keeps local enabled state across DOM re-renders', () => {
+        const firstPass = createMockSourceRow({ title: 'Persistent Source', stableToken: 'stable-doc', checked: false });
+        const secondPass = createMockSourceRow({ title: 'Persistent Source', stableToken: 'stable-doc', checked: false });
+        const descriptor = mod.createSourceDescriptor(firstPass.row, new Map(), new Map());
+
+        global.document.querySelectorAll = jest.fn((selector) => (
+            mod.DEPS.row.includes(selector) ? [firstPass.row] : []
+        ));
+        mod.scanAndSyncSources(null, true);
+        mod.sourcesByKey.get(descriptor.key).enabled = true;
+
+        global.document.querySelectorAll = jest.fn((selector) => (
+            mod.DEPS.row.includes(selector) ? [secondPass.row] : []
+        ));
+        mod.scanAndSyncSources(null, false);
+
+        expect(mod.sourcesByKey.get(descriptor.key).enabled).toBe(true);
+    });
+});
+
+describe('syncSourceToPage', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+        global.setTimeout = (cb) => {
+            cb();
+            return 1;
+        };
+        global.clearTimeout = jest.fn();
+        mod = loadContentModule();
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('recovers detached checkboxes via findFreshCheckbox and drains the queue', () => {
+        const staleCheckbox = { checked: false, click: jest.fn() };
+        const freshCheckbox = { checked: false, click: jest.fn(), closest: jest.fn(() => freshRow) };
+        const titleEl = { textContent: 'Synced Source' };
+        const freshRow = {
+            querySelector: jest.fn((selector) => {
+                if (mod.DEPS.title.includes(selector)) return titleEl;
+                if (mod.DEPS.checkbox.includes(selector)) return freshCheckbox;
+                return null;
+            })
+        };
+        const source = {
+            key: 'source_sync',
+            title: 'Synced Source',
+            element: {
+                querySelector: jest.fn(() => staleCheckbox)
+            }
+        };
+
+        mod.sourcesByKey.set('source_sync', source);
+        global.document.body.contains = jest.fn((node) => node !== staleCheckbox);
+        global.document.querySelectorAll = jest.fn((selector) => (
+            mod.DEPS.row.includes(selector) ? [freshRow] : []
+        ));
+
+        mod.syncSourceToPage(source, true);
+
+        expect(freshCheckbox.click).toHaveBeenCalledTimes(1);
+        expect(staleCheckbox.click).not.toHaveBeenCalled();
+        expect(mod._getClickQueueLength()).toBe(0);
+        expect(mod._getIsSyncingState()).toBe(false);
+    });
+});
+
 describe('findFreshCheckbox', () => {
     let mod;
 
@@ -420,7 +795,7 @@ describe('findFreshCheckbox', () => {
             tasks.forEach(cb => cb());
         };
 
-        mod = require('../src/content/index.js');
+        mod = loadContentModule();
         mod._resetState();
     });
 
@@ -520,7 +895,7 @@ describe('removeGroupFromTree', () => {
         jest.resetModules();
         setupGlobalMocks();
 
-        mod = require('../src/content/index.js');
+        mod = loadContentModule();
         mod._resetState();
     });
 
@@ -573,7 +948,7 @@ describe('manager launcher messaging', () => {
         global.setTimeout = jest.fn(() => 1);
         global.clearTimeout = jest.fn();
 
-        mod = require('../src/content/index.js');
+        mod = loadContentModule();
         mod._resetState();
     });
 
@@ -637,20 +1012,37 @@ describe('manager launcher messaging', () => {
         });
     });
 
-    it('auto refreshes when the user enters a notebook route through SPA navigation', () => {
+    it('reinitializes without immediate reload when the user enters a notebook route through SPA navigation', () => {
         mod._setProjectId(null);
         global.window.location.pathname = '/notebook/fresh-project';
 
         mod.handleRouteChanged();
 
-        expect(global.window.location.reload).toHaveBeenCalledTimes(1);
+        expect(global.window.location.reload).not.toHaveBeenCalled();
     });
 
-    it('auto refreshes when the user switches between notebook routes', () => {
+    it('reinitializes without immediate reload when the user switches between notebook routes', () => {
         mod._setProjectId('old-project');
         global.window.location.pathname = '/notebook/new-project';
 
         mod.handleRouteChanged();
+
+        expect(global.window.location.reload).not.toHaveBeenCalled();
+    });
+
+    it('falls back to reload only after repeated route recovery failures', async () => {
+        global.setTimeout = (cb) => {
+            cb();
+            return 1;
+        };
+        mod._setProjectId('old-project');
+        global.document.querySelector = jest.fn(() => null);
+        global.window.location.pathname = '/notebook/new-project';
+
+        mod.handleRouteChanged();
+
+        await Promise.resolve();
+        await Promise.resolve();
 
         expect(global.window.location.reload).toHaveBeenCalledTimes(1);
     });
