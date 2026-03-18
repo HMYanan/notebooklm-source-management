@@ -34,11 +34,15 @@
         ungrouped: [],
         filterQuery: '',
         isBatchMode: false,
+        tagOrder: [],
+        activeTagId: null
     };
     let pendingBatchKeys = new Set();
     let isDeletingSources = false;
     let groupsById = new Map(); // Flat map of ALL group objects for easy lookup
     let sourcesByKey = new Map();
+    let tagsById = new Map();
+    let sourceTagsById = new Map();
     let keyByElement = new WeakMap();
     let shadowRoot = null;
     let projectId = getProjectId();
@@ -55,20 +59,76 @@
     let pendingStorageUpgrade = false;
     let activeRouteRecoveryToken = 0;
     let routeRecoveryTimeout = null;
+    let activeIsolationGroupId = null;
+    let isSearchExpanded = false;
+    let pendingInitialLoadedState = null;
+    let pendingPanelReattachState = null;
+    let attachedSourcePanel = null;
+    let attachedPanelHeader = null;
+    let panelResizeObserver = null;
+    let panelLifecycleAnimationFrame = null;
+    let panelLifecycleTimeout = null;
+    let activeSourceActionSourceKey = null;
+    let sourceActionMenuPosition = null;
+
+    const SOURCE_PANEL_CONTENT_SELECTORS = Array.from(new Set([
+        '[data-testid="scroll-area"]',
+        '.scroll-area-desktop',
+        '.sources-list-container',
+        SCROLL_AREA_SELECTOR,
+        ...(Array.isArray(DEPS.scroll) ? DEPS.scroll : [])
+    ].filter(Boolean)));
 
     // --- Helper Functions ---
 
 
     function debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
+        let timeout = null;
+        let lastArgs = null;
+        let lastThis = null;
+
+        const invoke = () => {
+            timeout = null;
+            const args = lastArgs;
+            const context = lastThis;
+            lastArgs = null;
+            lastThis = null;
+            return func.apply(context, args || []);
         };
+
+        function executedFunction(...args) {
+            lastArgs = args;
+            lastThis = this;
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            timeout = setTimeout(invoke, wait);
+        }
+
+        executedFunction.cancel = () => {
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            timeout = null;
+            lastArgs = null;
+            lastThis = null;
+        };
+
+        executedFunction.flush = () => {
+            if (!timeout) return false;
+            clearTimeout(timeout);
+            invoke();
+            return true;
+        };
+
+        executedFunction.isPending = () => timeout !== null;
+
+        return executedFunction;
+    }
+
+    function getMessage(key, substitutions) {
+        if (!chrome?.i18n?.getMessage) return key;
+        return chrome.i18n.getMessage(key, substitutions) || key;
     }
 
     function findElement(selectors, parent = document) {
@@ -118,6 +178,407 @@
                 }, timeoutMs);
             }
         });
+    }
+
+    function cloneSerializableData(value) {
+        if (value == null) return value;
+        if (typeof globalThis.structuredClone === 'function') {
+            try {
+                return globalThis.structuredClone(value);
+            } catch (error) {
+                // Fallback to JSON cloning for plain persisted state objects.
+            }
+        }
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function findSourcePanel(parent = document) {
+        return findElement(DEPS.panel, parent);
+    }
+
+    function findSourcePanelContent(panel = findSourcePanel()) {
+        if (!panel) return null;
+        return findElement(SOURCE_PANEL_CONTENT_SELECTORS, panel);
+    }
+
+    function getSourcePanelHeader(panel = findSourcePanel()) {
+        if (!panel) return null;
+        return panel.querySelector('.panel-header') || panel.firstElementChild || null;
+    }
+
+    function getElementComputedStyle(target) {
+        if (!target) return null;
+        if (window && typeof window.getComputedStyle === 'function') {
+            return window.getComputedStyle(target);
+        }
+        if (document?.defaultView && typeof document.defaultView.getComputedStyle === 'function') {
+            return document.defaultView.getComputedStyle(target);
+        }
+        return target.style || null;
+    }
+
+    function isTransparentColor(value) {
+        const normalizedValue = String(value || '').trim().toLowerCase();
+        if (!normalizedValue || normalizedValue === 'transparent') {
+            return true;
+        }
+
+        const rgbaMatch = normalizedValue.match(/^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([0-9.]+)\s*\)$/);
+        if (rgbaMatch) {
+            return Number(rgbaMatch[1]) === 0;
+        }
+
+        const hslaMatch = normalizedValue.match(/^hsla\(\s*[-\d.]+\s*,\s*[-\d.]+%\s*,\s*[-\d.]+%\s*,\s*([0-9.]+)\s*\)$/);
+        if (hslaMatch) {
+            return Number(hslaMatch[1]) === 0;
+        }
+
+        return false;
+    }
+
+    function resolveSourcePanelSurfaceColor(panel = findSourcePanel()) {
+        const sourcePanel = panel || findSourcePanel();
+        if (!sourcePanel) return '';
+
+        const candidates = [
+            getSourcePanelHeader(sourcePanel),
+            sourcePanel,
+            sourcePanel.parentElement
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {
+            const computedStyle = getElementComputedStyle(candidate);
+            const backgroundColor = computedStyle?.backgroundColor || candidate?.style?.backgroundColor || '';
+            if (!isTransparentColor(backgroundColor)) {
+                return backgroundColor;
+            }
+        }
+
+        return '';
+    }
+
+    function applySourcePanelSurfaceColor(host = extensionHost, panel = findSourcePanel()) {
+        const targetHost = host || extensionHost;
+        const hostStyle = targetHost?.style;
+        if (!hostStyle || typeof hostStyle.setProperty !== 'function') {
+            return '';
+        }
+
+        const resolvedColor = resolveSourcePanelSurfaceColor(panel);
+        if (resolvedColor) {
+            hostStyle.setProperty('--sp-panel-bg', resolvedColor);
+        } else if (typeof hostStyle.removeProperty === 'function') {
+            hostStyle.removeProperty('--sp-panel-bg');
+        }
+
+        return resolvedColor;
+    }
+
+    function getElementBoundingRect(target) {
+        if (!target || typeof target.getBoundingClientRect !== 'function') return null;
+        try {
+            return target.getBoundingClientRect();
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function hasRenderableBox(target) {
+        const rect = getElementBoundingRect(target);
+        if (rect && (rect.width > 0 || rect.height > 0)) {
+            return true;
+        }
+
+        const widths = [
+            Number(target?.offsetWidth) || 0,
+            Number(target?.clientWidth) || 0,
+            Number(target?.scrollWidth) || 0
+        ];
+        const heights = [
+            Number(target?.offsetHeight) || 0,
+            Number(target?.clientHeight) || 0,
+            Number(target?.scrollHeight) || 0
+        ];
+        return Math.max(...widths) > 0 || Math.max(...heights) > 0;
+    }
+
+    function isElementRenderable(target) {
+        if (!target) return false;
+        if ('isConnected' in target && target.isConnected === false) return false;
+        if (target.hidden === true) return false;
+        if (typeof target.getAttribute === 'function' && target.getAttribute('aria-hidden') === 'true') {
+            return false;
+        }
+        if (typeof target.matches === 'function' && target.matches('[hidden], [aria-hidden="true"]')) {
+            return false;
+        }
+
+        const computedStyle = getElementComputedStyle(target);
+        if (computedStyle) {
+            // We intentionally hide the native source list with visibility:hidden
+            // while keeping its layout box alive, so visibility alone should not
+            // be treated as a collapsed panel signal.
+            if (computedStyle.display === 'none') {
+                return false;
+            }
+        }
+
+        return hasRenderableBox(target);
+    }
+
+    function isSourcePanelCollapsed(panel) {
+        const sourcePanel = panel || findSourcePanel();
+        if (!sourcePanel || !isElementRenderable(sourcePanel)) return true;
+        const panelContent = findSourcePanelContent(sourcePanel);
+        return !panelContent || !isElementRenderable(panelContent);
+    }
+
+    function isSourcePanelRenderable(panel) {
+        const sourcePanel = panel || findSourcePanel();
+        return Boolean(sourcePanel) && !isSourcePanelCollapsed(sourcePanel);
+    }
+
+    function isManagerAttachedToPanel(panel) {
+        return Boolean(
+            panel &&
+            attachedSourcePanel === panel &&
+            extensionHost &&
+            (!('isConnected' in extensionHost) || extensionHost.isConnected !== false) &&
+            shadowRoot &&
+            shadowRoot.host &&
+            (!('isConnected' in shadowRoot.host) || shadowRoot.host.isConnected !== false)
+        );
+    }
+
+    function clearScheduledPanelLifecycleSync() {
+        if (typeof debouncedPanelLifecycleSync?.cancel === 'function') {
+            debouncedPanelLifecycleSync.cancel();
+        }
+        if (panelLifecycleAnimationFrame != null && window && typeof window.cancelAnimationFrame === 'function') {
+            window.cancelAnimationFrame(panelLifecycleAnimationFrame);
+        }
+        panelLifecycleAnimationFrame = null;
+        if (panelLifecycleTimeout != null) {
+            clearTimeout(panelLifecycleTimeout);
+            panelLifecycleTimeout = null;
+        }
+    }
+
+    function schedulePanelLifecycleSync(options = {}) {
+        const { immediate = false } = options;
+        if (immediate) {
+            if (typeof debouncedPanelLifecycleSync?.cancel === 'function') {
+                debouncedPanelLifecycleSync.cancel();
+            }
+            syncManagerWithPanelLifecycle();
+            return;
+        }
+        debouncedPanelLifecycleSync();
+    }
+
+    function handleSourcePanelHeaderInteraction() {
+        schedulePanelLifecycleSync({ immediate: true });
+        if (window && typeof window.requestAnimationFrame === 'function') {
+            if (panelLifecycleAnimationFrame != null && typeof window.cancelAnimationFrame === 'function') {
+                window.cancelAnimationFrame(panelLifecycleAnimationFrame);
+            }
+            panelLifecycleAnimationFrame = window.requestAnimationFrame(() => {
+                panelLifecycleAnimationFrame = null;
+                schedulePanelLifecycleSync();
+            });
+        } else {
+            schedulePanelLifecycleSync();
+        }
+
+        if (panelLifecycleTimeout != null) {
+            clearTimeout(panelLifecycleTimeout);
+        }
+        panelLifecycleTimeout = setTimeout(() => {
+            panelLifecycleTimeout = null;
+            schedulePanelLifecycleSync();
+        }, 120);
+    }
+
+    function canOpenSourceActionMenu(source) {
+        return Boolean(source && !state.isBatchMode && !source.isLoading && !source.isDisabled);
+    }
+
+    function getViewportSize() {
+        const docEl = document?.documentElement;
+        return {
+            width: Number(window?.innerWidth) || Number(docEl?.clientWidth) || 1280,
+            height: Number(window?.innerHeight) || Number(docEl?.clientHeight) || 720
+        };
+    }
+
+    function findSourceActionButton(sourceKey) {
+        if (!shadowRoot || !sourceKey) return null;
+        const buttons = shadowRoot.querySelectorAll('.sp-source-actions-button');
+        return Array.from(buttons).find((button) => button?.dataset?.sourceKey === sourceKey) || null;
+    }
+
+    function getSourceActionMenuPosition(triggerElement) {
+        const triggerRect = getElementBoundingRect(triggerElement);
+        if (!triggerRect) return null;
+
+        const MENU_WIDTH = 220;
+        const MENU_HEIGHT = 146;
+        const VIEWPORT_PADDING = 8;
+        const MENU_GAP = 8;
+        const viewport = getViewportSize();
+
+        let left = triggerRect.left - 4;
+        left = Math.min(Math.max(left, VIEWPORT_PADDING), Math.max(VIEWPORT_PADDING, viewport.width - MENU_WIDTH - VIEWPORT_PADDING));
+
+        let top = triggerRect.bottom + MENU_GAP;
+        let placement = 'bottom';
+        if (top + MENU_HEIGHT > viewport.height - VIEWPORT_PADDING) {
+            const topPlacement = triggerRect.top - MENU_HEIGHT - MENU_GAP;
+            if (topPlacement >= VIEWPORT_PADDING) {
+                top = topPlacement;
+                placement = 'top';
+            } else {
+                top = Math.max(VIEWPORT_PADDING, viewport.height - MENU_HEIGHT - VIEWPORT_PADDING);
+            }
+        }
+
+        return { top, left, placement };
+    }
+
+    function closeSourceActionMenu() {
+        activeSourceActionSourceKey = null;
+        sourceActionMenuPosition = null;
+    }
+
+    function dismissSourceActionMenuAndRender() {
+        if (!activeSourceActionSourceKey) return false;
+        closeSourceActionMenu();
+        render();
+        return true;
+    }
+
+    function toggleSourceActionMenu(sourceKey, triggerElement = null) {
+        if (!sourceKey) {
+            closeSourceActionMenu();
+            return activeSourceActionSourceKey;
+        }
+
+        const source = sourcesByKey.get(sourceKey);
+        if (!canOpenSourceActionMenu(source)) {
+            closeSourceActionMenu();
+            return activeSourceActionSourceKey;
+        }
+
+        if (activeSourceActionSourceKey === sourceKey) {
+            closeSourceActionMenu();
+            return activeSourceActionSourceKey;
+        }
+
+        activeSourceActionSourceKey = sourceKey;
+        sourceActionMenuPosition = getSourceActionMenuPosition(triggerElement || findSourceActionButton(sourceKey));
+        return activeSourceActionSourceKey;
+    }
+
+    function syncActiveSourceActionMenuState() {
+        if (!activeSourceActionSourceKey) return false;
+
+        const activeSource = sourcesByKey.get(activeSourceActionSourceKey);
+        if (
+            !canOpenSourceActionMenu(activeSource) ||
+            !sourceMatchesCurrentFilters(activeSource)
+        ) {
+            closeSourceActionMenu();
+            return true;
+        }
+
+        const actionButton = findSourceActionButton(activeSourceActionSourceKey);
+        if (!actionButton) {
+            closeSourceActionMenu();
+            return true;
+        }
+
+        sourceActionMenuPosition = getSourceActionMenuPosition(actionButton);
+        return false;
+    }
+
+    function triggerNativeSourceMenu(sourceKey) {
+        const source = sourcesByKey.get(sourceKey);
+        if (!source?.element) return false;
+
+        const nativeBtn = findElement(DEPS.moreBtn, source.element);
+        if (!nativeBtn) return false;
+
+        nativeBtn.click();
+        return true;
+    }
+
+    const sourceActionInvokers = {
+        openTags: (sourceKey) => renderTagModal(sourceKey),
+        moveToFolder: (sourceKey) => renderMoveToFolderModal(sourceKey),
+        openNativeMenu: (sourceKey) => triggerNativeSourceMenu(sourceKey)
+    };
+
+    function handleSourceActionSelection(sourceKey, action) {
+        const source = sourcesByKey.get(sourceKey);
+        if (!sourceKey || !canOpenSourceActionMenu(source)) {
+            closeSourceActionMenu();
+            return false;
+        }
+
+        closeSourceActionMenu();
+
+        switch (action) {
+        case 'tags':
+            sourceActionInvokers.openTags(sourceKey);
+            return true;
+        case 'move':
+            sourceActionInvokers.moveToFolder(sourceKey);
+            return true;
+        case 'native-more':
+            return sourceActionInvokers.openNativeMenu(sourceKey);
+        default:
+            return false;
+        }
+    }
+
+    function bindPanelLifecycleHooks(panel = findSourcePanel()) {
+        if (!panel) {
+            if (panelResizeObserver) {
+                panelResizeObserver.disconnect();
+                panelResizeObserver = null;
+            }
+            if (attachedPanelHeader && typeof attachedPanelHeader.removeEventListener === 'function') {
+                attachedPanelHeader.removeEventListener('click', handleSourcePanelHeaderInteraction, true);
+            }
+            attachedPanelHeader = null;
+            clearScheduledPanelLifecycleSync();
+            return;
+        }
+
+        const panelHeader = getSourcePanelHeader(panel);
+        if (attachedPanelHeader !== panelHeader) {
+            if (attachedPanelHeader && typeof attachedPanelHeader.removeEventListener === 'function') {
+                attachedPanelHeader.removeEventListener('click', handleSourcePanelHeaderInteraction, true);
+            }
+            attachedPanelHeader = panelHeader;
+            if (attachedPanelHeader && typeof attachedPanelHeader.addEventListener === 'function') {
+                attachedPanelHeader.addEventListener('click', handleSourcePanelHeaderInteraction, true);
+            }
+        }
+
+        if (typeof ResizeObserver !== 'function') return;
+
+        if (!panelResizeObserver) {
+            panelResizeObserver = new ResizeObserver(() => {
+                schedulePanelLifecycleSync();
+            });
+        }
+        panelResizeObserver.disconnect();
+        panelResizeObserver.observe(panel);
+        const panelContent = findSourcePanelContent(panel);
+        if (panelContent) {
+            panelResizeObserver.observe(panelContent);
+        }
     }
 
     function getProjectId() {
@@ -195,8 +656,7 @@
             '[data-resource-id]',
             '[data-item-id]',
             '[data-id]',
-            '[href]',
-            '[aria-controls]'
+            '[href]'
         ];
         const attributeKeys = [
             'data-source-id',
@@ -204,8 +664,7 @@
             'data-doc-id',
             'data-resource-id',
             'data-item-id',
-            'data-id',
-            'aria-controls'
+            'data-id'
         ];
         const candidates = [sourceRow];
 
@@ -301,6 +760,95 @@
         };
     }
 
+    function normalizeTagLabel(value) {
+        return String(value || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .slice(0, 48);
+    }
+
+    function generateTagId() {
+        return `tag_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function getSortedTagIds(tagIds = []) {
+        const orderIndex = new Map();
+        state.tagOrder.forEach((tagId, index) => orderIndex.set(tagId, index));
+        return Array.from(new Set(tagIds))
+            .filter((tagId) => tagsById.has(tagId))
+            .sort((left, right) => (orderIndex.get(left) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(right) ?? Number.MAX_SAFE_INTEGER));
+    }
+
+    function getSourceTagIds(sourceKey) {
+        return getSortedTagIds(sourceTagsById.get(sourceKey) || []);
+    }
+
+    function getTagUsageCounts() {
+        const counts = new Map();
+        sourceTagsById.forEach((tagIds) => {
+            getSortedTagIds(tagIds).forEach((tagId) => {
+                counts.set(tagId, (counts.get(tagId) || 0) + 1);
+            });
+        });
+        return counts;
+    }
+
+    function findExistingTagIdByLabel(label) {
+        const normalizedLabel = normalizeTagLabel(label).toLowerCase();
+        if (!normalizedLabel) return null;
+
+        for (const [tagId, tag] of tagsById.entries()) {
+            if (normalizeTagLabel(tag.label).toLowerCase() === normalizedLabel) {
+                return tagId;
+            }
+        }
+
+        return null;
+    }
+
+    function createTag(label) {
+        const normalizedLabel = normalizeTagLabel(label);
+        if (!normalizedLabel) {
+            showToast(getMessage('ui_tag_name_required'));
+            return null;
+        }
+
+        const duplicateTagId = findExistingTagIdByLabel(normalizedLabel);
+        if (duplicateTagId) {
+            showToast(getMessage('ui_tag_create_duplicate'));
+            return duplicateTagId;
+        }
+
+        const tagId = generateTagId();
+        tagsById.set(tagId, { id: tagId, label: normalizedLabel });
+        state.tagOrder.push(tagId);
+        return tagId;
+    }
+
+    function setSourceTagIds(sourceKey, tagIds) {
+        const normalizedIds = getSortedTagIds(tagIds);
+        if (normalizedIds.length === 0) {
+            sourceTagsById.delete(sourceKey);
+            return;
+        }
+        sourceTagsById.set(sourceKey, normalizedIds);
+    }
+
+    function deleteTag(tagId) {
+        if (!tagsById.has(tagId)) return;
+
+        tagsById.delete(tagId);
+        state.tagOrder = state.tagOrder.filter((id) => id !== tagId);
+        if (state.activeTagId === tagId) {
+            state.activeTagId = null;
+        }
+
+        sourceTagsById.forEach((tagIds, sourceKey) => {
+            const nextTagIds = tagIds.filter((id) => id !== tagId);
+            setSourceTagIds(sourceKey, nextTagIds);
+        });
+    }
+
     function buildSourceLookup(sourceList) {
         const byId = new Map();
         const byLegacyKey = new Map();
@@ -355,11 +903,115 @@
         return null;
     }
 
+    function snapshotExistingSourceRecords() {
+        const sourceRecordsByKey = new Map();
+        sourcesByKey.forEach((source, key) => {
+            sourceRecordsByKey.set(key, {
+                enabled: Boolean(source.enabled),
+                title: source.title,
+                normalizedTitle: source.normalizedTitle || normalizeSourceText(source.title),
+                fingerprint: source.fingerprint || '',
+                identityType: source.identityType || 'fingerprint'
+            });
+        });
+        return sourceRecordsByKey;
+    }
+
+    function remapExistingStateToCurrentSources(sourceLookup, previousState) {
+        const nextGroups = [];
+        const nextUngrouped = [];
+        const nextGroupsById = new Map();
+        const nextSourceStateById = new Map();
+        const nextSourceTagsById = new Map();
+        const seenSourceRefs = new Set();
+
+        groupsById.forEach((group, groupId) => {
+            nextGroupsById.set(groupId, {
+                ...group,
+                children: []
+            });
+        });
+
+        groupsById.forEach((group, groupId) => {
+            const nextGroup = nextGroupsById.get(groupId);
+            if (!nextGroup) return;
+
+            group.children.forEach((child) => {
+                if (child.type === 'group' && nextGroupsById.has(child.id) && child.id !== groupId) {
+                    nextGroup.children.push({ type: 'group', id: child.id });
+                    return;
+                }
+
+                if (child.type !== 'source') return;
+
+                const sourceRecord = previousState.sourceRecordsByKey.get(child.key) || null;
+                const resolvedKey = resolveStoredSourceKey(child.key, sourceLookup, sourceRecord);
+                if (!resolvedKey || seenSourceRefs.has(resolvedKey)) return;
+
+                nextGroup.children.push({ type: 'source', key: resolvedKey });
+                seenSourceRefs.add(resolvedKey);
+
+                if (!nextSourceStateById.has(resolvedKey) && sourceRecord) {
+                    nextSourceStateById.set(resolvedKey, sourceRecord);
+                }
+
+                if (!nextSourceTagsById.has(resolvedKey) && previousState.sourceTagsById.has(child.key)) {
+                    nextSourceTagsById.set(resolvedKey, [...previousState.sourceTagsById.get(child.key)]);
+                }
+            });
+        });
+
+        state.groups.forEach((groupId) => {
+            if (nextGroupsById.has(groupId)) {
+                nextGroups.push(groupId);
+            }
+        });
+
+        state.ungrouped.forEach((storedKey) => {
+            const sourceRecord = previousState.sourceRecordsByKey.get(storedKey) || null;
+            const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
+            if (!resolvedKey || seenSourceRefs.has(resolvedKey)) return;
+
+            nextUngrouped.push(resolvedKey);
+            seenSourceRefs.add(resolvedKey);
+
+            if (!nextSourceStateById.has(resolvedKey) && sourceRecord) {
+                nextSourceStateById.set(resolvedKey, sourceRecord);
+            }
+
+            if (!nextSourceTagsById.has(resolvedKey) && previousState.sourceTagsById.has(storedKey)) {
+                nextSourceTagsById.set(resolvedKey, [...previousState.sourceTagsById.get(storedKey)]);
+            }
+        });
+
+        previousState.sourceRecordsByKey.forEach((sourceRecord, storedKey) => {
+            const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
+            if (!resolvedKey || nextSourceStateById.has(resolvedKey)) return;
+            nextSourceStateById.set(resolvedKey, sourceRecord);
+        });
+
+        previousState.sourceTagsById.forEach((tagIds, storedKey) => {
+            const sourceRecord = previousState.sourceRecordsByKey.get(storedKey) || null;
+            const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
+            if (!resolvedKey || nextSourceTagsById.has(resolvedKey)) return;
+            nextSourceTagsById.set(resolvedKey, [...tagIds]);
+        });
+
+        return {
+            groups: nextGroups,
+            ungrouped: nextUngrouped,
+            groupsById: nextGroupsById,
+            sourceStateById: nextSourceStateById,
+            sourceTagsById: nextSourceTagsById,
+            seenSourceRefs
+        };
+    }
+
     function buildResolvedSourceStateById(sourceLookup, loadedState) {
         const resolvedSourceState = new Map();
         if (!loadedState) return resolvedSourceState;
 
-        if (loadedState.schemaVersion === STORAGE_SCHEMA_VERSION && loadedState.sourceStateById) {
+        if (loadedState.sourceStateById) {
             Object.entries(loadedState.sourceStateById).forEach(([storedKey, sourceRecord]) => {
                 const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
                 if (resolvedKey && !resolvedSourceState.has(resolvedKey)) {
@@ -379,6 +1031,47 @@
         }
 
         return resolvedSourceState;
+    }
+
+    function buildNormalizedTagState(loadedState) {
+        const nextTagsById = new Map();
+        const rawTagsById = loadedState && typeof loadedState.tagsById === 'object' ? loadedState.tagsById : {};
+        const preferredOrder = Array.isArray(loadedState && loadedState.tagOrder) ? loadedState.tagOrder : [];
+        const seenTagIds = new Set();
+        const nextTagOrder = [];
+
+        const registerTag = (tagId) => {
+            if (!tagId || seenTagIds.has(tagId)) return;
+            const rawTag = rawTagsById[tagId];
+            const label = normalizeTagLabel(rawTag && (rawTag.label || rawTag.title || rawTag.name || ''));
+            if (!label) return;
+            seenTagIds.add(tagId);
+            nextTagOrder.push(tagId);
+            nextTagsById.set(tagId, { id: tagId, label });
+        };
+
+        preferredOrder.forEach(registerTag);
+        Object.keys(rawTagsById).forEach(registerTag);
+
+        return { nextTagsById, nextTagOrder };
+    }
+
+    function buildResolvedSourceTagsById(sourceLookup, loadedState) {
+        const resolvedSourceTags = new Map();
+        if (!loadedState || !loadedState.sourceTagsById) return resolvedSourceTags;
+
+        Object.entries(loadedState.sourceTagsById).forEach(([storedKey, rawTagIds]) => {
+            const sourceRecord = loadedState.sourceStateById ? loadedState.sourceStateById[storedKey] : null;
+            const resolvedKey = resolveStoredSourceKey(storedKey, sourceLookup, sourceRecord);
+            if (!resolvedKey || resolvedSourceTags.has(resolvedKey)) return;
+
+            resolvedSourceTags.set(
+                resolvedKey,
+                Array.from(new Set(Array.isArray(rawTagIds) ? rawTagIds.filter(Boolean) : []))
+            );
+        });
+
+        return resolvedSourceTags;
     }
 
     function reconcilePersistedTree(loadedState, sourceLookup) {
@@ -485,11 +1178,15 @@
     }
 
     function getManagerStatus() {
+        const sourcePanel = findSourcePanel();
         const isReady = Boolean(
             shadowRoot &&
             shadowRoot.host &&
             shadowRoot.host.isConnected &&
-            shadowRoot.querySelector('.sp-container')
+            shadowRoot.querySelector('.sp-container') &&
+            sourcePanel &&
+            isSourcePanelRenderable(sourcePanel) &&
+            isManagerAttachedToPanel(sourcePanel)
         );
 
         if (isReady) {
@@ -502,9 +1199,14 @@
             return { ready: false, reason: 'not_on_notebook_page' };
         }
 
-        if (!findElement(DEPS.panel)) {
+        if (!sourcePanel) {
             managerStatusReason = 'source_panel_missing';
             return { ready: false, reason: 'source_panel_missing' };
+        }
+
+        if (!isSourcePanelRenderable(sourcePanel)) {
+            managerStatusReason = 'manager_not_ready';
+            return { ready: false, reason: 'manager_not_ready' };
         }
 
         return { ready: false, reason: managerStatusReason || 'manager_not_ready' };
@@ -762,6 +1464,7 @@
         isDeletingSources = false;
         pendingBatchKeys.clear();
         state.isBatchMode = false;
+        closeSourceActionMenu();
 
         showToast(chrome.i18n.getMessage("ui_deleted_toast", [deletedCount.toString()]));
         render(); // The heartbeat observer will catch the actual DOM removals eventually
@@ -770,11 +1473,252 @@
 
     function isSourceEffectivelyEnabled(source) {
         if (!source) return false;
-        return source.enabled && areAllAncestorsEnabled(source.key);
+        return source.enabled && areAllAncestorsEnabled(source.key) && isSourceWithinActiveIsolation(source.key);
+    }
+
+    function isGroupWithinActiveIsolation(groupId) {
+        if (!activeIsolationGroupId) return true;
+        const group = groupsById.get(groupId);
+        const isolatedGroup = groupsById.get(activeIsolationGroupId);
+        if (!group || !isolatedGroup) return false;
+        return isDescendant(group, isolatedGroup, groupsById);
+    }
+
+    function isSourceWithinActiveIsolation(sourceKey) {
+        if (!activeIsolationGroupId) return true;
+
+        let currentParentId = parentMap.get(sourceKey);
+        while (currentParentId) {
+            if (currentParentId === activeIsolationGroupId) {
+                return true;
+            }
+            currentParentId = parentMap.get(currentParentId);
+        }
+
+        return false;
+    }
+
+    function sourceMatchesCurrentFilters(source) {
+        if (!source) return false;
+
+        const filterQuery = (state.filterQuery || '').toLowerCase();
+        if (filterQuery && (!source.lowercaseTitle || !source.lowercaseTitle.includes(filterQuery))) {
+            return false;
+        }
+
+        if (state.activeTagId && !getSourceTagIds(source.key).includes(state.activeTagId)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    function hasActiveRenderFilters() {
+        return Boolean((state.filterQuery || '').trim() || state.activeTagId);
+    }
+
+    function groupHasRenderableDescendant(group) {
+        if (!group) return false;
+
+        for (const child of group.children) {
+            if (child.type === 'source') {
+                const source = sourcesByKey.get(child.key);
+                if (source && sourceMatchesCurrentFilters(source)) {
+                    return true;
+                }
+                continue;
+            }
+
+            const childGroup = groupsById.get(child.id);
+            if (childGroup && groupHasRenderableDescendant(childGroup)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function shouldRenderGroup(group) {
+        if (!group) return false;
+        if (!hasActiveRenderFilters()) return true;
+        return groupHasRenderableDescendant(group);
+    }
+
+    function getSearchUiElements() {
+        if (!shadowRoot) return {};
+
+        return {
+            controls: shadowRoot.querySelector('.sp-controls'),
+            searchContainer: shadowRoot.querySelector('.sp-search-container'),
+            searchInput: shadowRoot.getElementById('sp-search'),
+            searchButton: shadowRoot.getElementById('sp-search-btn')
+        };
+    }
+
+    function getCurrentSearchValue(searchInput) {
+        if (searchInput && typeof searchInput.value === 'string') {
+            return searchInput.value;
+        }
+
+        return state.filterQuery || '';
+    }
+
+    function hasCurrentSearchValue(searchInput) {
+        return Boolean(getCurrentSearchValue(searchInput).trim());
+    }
+
+    function isSearchUiCurrentlyExpanded(searchInput) {
+        return isSearchExpanded || hasCurrentSearchValue(searchInput);
+    }
+
+    function syncSearchUi() {
+        const { controls, searchContainer, searchInput, searchButton } = getSearchUiElements();
+        if (!controls || !searchContainer || !searchInput || !searchButton) return;
+
+        const expanded = isSearchUiCurrentlyExpanded(searchInput);
+        const label = getMessage('ui_filter_sources');
+
+        controls.classList.toggle('is-search-expanded', expanded);
+        searchContainer.classList.toggle('is-expanded', expanded);
+        if (searchInput.value !== (state.filterQuery || '')) {
+            searchInput.value = state.filterQuery || '';
+        }
+        searchInput.tabIndex = expanded ? 0 : -1;
+        searchInput.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+        searchButton.setAttribute('title', label);
+        searchButton.setAttribute('aria-label', label);
+        searchButton.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+
+        if (!expanded && typeof searchInput.blur === 'function') {
+            searchInput.blur();
+        }
+    }
+
+    function expandSearch(options = {}) {
+        const { focus = false } = options;
+        isSearchExpanded = true;
+        syncSearchUi();
+
+        if (!focus) return;
+
+        const { searchInput } = getSearchUiElements();
+        if (searchInput && typeof searchInput.focus === 'function') {
+            searchInput.focus();
+        }
+    }
+
+    function collapseSearchIfEmpty() {
+        const { searchInput } = getSearchUiElements();
+        if (hasCurrentSearchValue(searchInput)) return false;
+
+        isSearchExpanded = false;
+        syncSearchUi();
+        return true;
+    }
+
+    function handleSearchButtonClick(triggerSearch) {
+        const { searchInput } = getSearchUiElements();
+        if (!isSearchUiCurrentlyExpanded(searchInput)) {
+            expandSearch({ focus: true });
+            return 'expanded';
+        }
+
+        if (!hasCurrentSearchValue(searchInput)) {
+            collapseSearchIfEmpty();
+            return 'collapsed';
+        }
+
+        if (typeof triggerSearch === 'function') {
+            triggerSearch();
+        }
+
+        return 'searched';
+    }
+
+    function handleSearchOutsideClick(event) {
+        const target = event?.target;
+        let didCloseAnyUi = false;
+
+        if (
+            activeSourceActionSourceKey &&
+            target &&
+            typeof target.closest === 'function' &&
+            !target.closest('.sp-source-actions-button') &&
+            !target.closest('.sp-source-actions-menu')
+        ) {
+            closeSourceActionMenu();
+            didCloseAnyUi = true;
+        }
+
+        const { searchContainer, searchInput } = getSearchUiElements();
+        if (
+            searchContainer &&
+            isSearchUiCurrentlyExpanded(searchInput) &&
+            !hasCurrentSearchValue(searchInput)
+        ) {
+            if (target && typeof target.closest === 'function' && target.closest('.sp-search-container')) {
+                if (didCloseAnyUi) {
+                    render();
+                }
+                return didCloseAnyUi;
+            }
+
+            isSearchExpanded = false;
+            syncSearchUi();
+            didCloseAnyUi = true;
+        }
+
+        if (didCloseAnyUi) {
+            render();
+        }
+
+        return didCloseAnyUi;
+    }
+
+    function handleDocumentOutsideClick(event) {
+        if (!activeSourceActionSourceKey || !extensionHost) return false;
+
+        const composedPath = typeof event?.composedPath === 'function' ? event.composedPath() : [];
+        if (Array.isArray(composedPath) && composedPath.includes(extensionHost)) {
+            return false;
+        }
+
+        return dismissSourceActionMenuAndRender();
+    }
+
+    function handleSourceActionMenuViewportChange() {
+        return dismissSourceActionMenuAndRender();
+    }
+
+    function collectEffectiveSourceStates() {
+        const effectiveStates = new Map();
+        sourcesByKey.forEach((source, sourceKey) => {
+            effectiveStates.set(sourceKey, isSourceEffectivelyEnabled(source));
+        });
+        return effectiveStates;
+    }
+
+    function syncSourcesToEffectiveState(previousStates = null) {
+        const nextStates = collectEffectiveSourceStates();
+
+        if (!previousStates) {
+            nextStates.forEach((desiredState, sourceKey) => {
+                syncSourceToPage(sourcesByKey.get(sourceKey), desiredState);
+            });
+            return nextStates;
+        }
+
+        nextStates.forEach((desiredState, sourceKey) => {
+            if (previousStates.get(sourceKey) !== desiredState) {
+                syncSourceToPage(sourcesByKey.get(sourceKey), desiredState);
+            }
+        });
+
+        return nextStates;
     }
 
     // --- Persistence Functions ---
-    const debouncedStorageSet = debounce((key, data) => {
+    function sendStateToStorage(key, data) {
         try {
             chrome.runtime.sendMessage({ type: 'SAVE_STATE', key, data }, (response) => {
                 if (chrome.runtime.lastError) {
@@ -784,10 +1728,28 @@
         } catch (e) {
             console.warn("NotebookLM Source Management: Context invalidated. Please refresh the page.", e);
         }
+    }
+
+    const debouncedStorageSet = debounce((key, data) => {
+        sendStateToStorage(key, data);
     }, 1500);
+
+    function flushPendingStateSave() {
+        if (typeof debouncedStorageSet.flush === 'function') {
+            return debouncedStorageSet.flush();
+        }
+        return false;
+    }
+
+    function cancelPendingStateSave() {
+        if (typeof debouncedStorageSet.cancel === 'function') {
+            debouncedStorageSet.cancel();
+        }
+    }
 
     function buildPersistableState() {
         const sourceStateById = {};
+        const persistedSourceTagsById = {};
 
         sourcesByKey.forEach((source, sourceKey) => {
             sourceStateById[sourceKey] = {
@@ -797,6 +1759,11 @@
                 fingerprint: source.fingerprint || '',
                 identityType: source.identityType || 'fingerprint'
             };
+
+            const tagIds = getSourceTagIds(sourceKey);
+            if (tagIds.length > 0) {
+                persistedSourceTagsById[sourceKey] = tagIds;
+            }
         });
 
         return {
@@ -805,15 +1772,34 @@
             groupsById: Object.fromEntries(groupsById),
             ungrouped: state.ungrouped,
             sourceStateById,
-            customHeight
+            customHeight,
+            tagsById: Object.fromEntries(tagsById),
+            tagOrder: state.tagOrder.filter((tagId) => tagsById.has(tagId)),
+            sourceTagsById: persistedSourceTagsById
         };
     }
 
-    function saveState() {
+    function saveState(options = {}) {
         if (!projectId) return;
+        const { immediate = false } = options;
         const key = `sourcesPlusState_${projectId}`;
         const persistableState = buildPersistableState();
+
+        if (immediate) {
+            cancelPendingStateSave();
+            sendStateToStorage(key, persistableState);
+            return;
+        }
+
         debouncedStorageSet(key, persistableState);
+    }
+
+    function handlePageLifecyclePersistence(event) {
+        if (event?.type === 'visibilitychange' && document.visibilityState !== 'hidden') {
+            return;
+        }
+
+        flushPendingStateSave();
     }
 
     function normalizeLoadedState(stateData) {
@@ -827,19 +1813,133 @@
                 groupsById: stateData.groupsById || {},
                 ungrouped: Array.isArray(stateData.ungrouped) ? stateData.ungrouped : [],
                 sourceStateById: stateData.sourceStateById || {},
-                customHeight: stateData.customHeight ?? null
+                customHeight: stateData.customHeight ?? null,
+                tagsById: stateData.tagsById || {},
+                tagOrder: Array.isArray(stateData.tagOrder) ? stateData.tagOrder : [],
+                sourceTagsById: stateData.sourceTagsById || {}
             };
         }
 
         pendingStorageUpgrade = true;
+        if (stateData.schemaVersion === 2) {
+            return {
+                schemaVersion: 2,
+                groups: Array.isArray(stateData.groups) ? stateData.groups : [],
+                groupsById: stateData.groupsById || {},
+                ungrouped: Array.isArray(stateData.ungrouped) ? stateData.ungrouped : [],
+                sourceStateById: stateData.sourceStateById || {},
+                customHeight: stateData.customHeight ?? null,
+                tagsById: {},
+                tagOrder: [],
+                sourceTagsById: {}
+            };
+        }
+
         return {
             schemaVersion: 1,
             groups: Array.isArray(stateData.groups) ? stateData.groups : [],
             groupsById: stateData.groupsById || {},
             ungrouped: Array.isArray(stateData.ungrouped) ? stateData.ungrouped : [],
             legacyEnabledMap: stateData.enabledMap || {},
-            customHeight: stateData.customHeight ?? null
+            customHeight: stateData.customHeight ?? null,
+            tagsById: {},
+            tagOrder: [],
+            sourceTagsById: {}
         };
+    }
+
+    function getSourceElements(parent = document) {
+        return Array.from(queryAllElements(DEPS.row, parent));
+    }
+
+    function hasRenderableSourceRows(parent = document) {
+        return getSourceElements(parent).length > 0;
+    }
+
+    function hasPersistedSourceRefs(loadedState) {
+        if (!loadedState || typeof loadedState !== 'object') return false;
+
+        const hasGroupedSources = Object.values(loadedState.groupsById || {}).some((group) => (
+            Array.isArray(group?.children) && group.children.some((child) => child?.type === 'source')
+        ));
+        if (hasGroupedSources) return true;
+
+        if (Array.isArray(loadedState.ungrouped) && loadedState.ungrouped.length > 0) {
+            return true;
+        }
+
+        return Boolean(
+            loadedState.sourceStateById &&
+            Object.keys(loadedState.sourceStateById).length > 0
+        );
+    }
+
+    function hasPersistableManagerState(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return false;
+        if (hasPersistedSourceRefs(snapshot)) return true;
+        if (Array.isArray(snapshot.groups) && snapshot.groups.length > 0) return true;
+        if (snapshot.groupsById && Object.keys(snapshot.groupsById).length > 0) return true;
+        if (snapshot.tagsById && Object.keys(snapshot.tagsById).length > 0) return true;
+        if (Array.isArray(snapshot.tagOrder) && snapshot.tagOrder.length > 0) return true;
+        return snapshot.customHeight != null;
+    }
+
+    function capturePendingPanelReattachState() {
+        const liveSnapshot = buildPersistableState();
+        if (hasPersistableManagerState(liveSnapshot)) {
+            return cloneSerializableData(liveSnapshot);
+        }
+
+        if (pendingInitialLoadedState && hasPersistableManagerState(pendingInitialLoadedState)) {
+            return cloneSerializableData(pendingInitialLoadedState);
+        }
+
+        return null;
+    }
+
+    function restoreInitialLoadedState(loadedState) {
+        if (loadedState && hasPersistedSourceRefs(loadedState) && !hasRenderableSourceRows()) {
+            pendingInitialLoadedState = loadedState;
+            return { deferred: true, shouldUpgradeStorage: false };
+        }
+
+        const shouldUpgradeStorage = scanAndSyncSources(loadedState, true);
+        pendingInitialLoadedState = null;
+        return { deferred: false, shouldUpgradeStorage };
+    }
+
+    function flushPendingInitialLoadedState() {
+        if (!pendingInitialLoadedState) {
+            return { restored: false, deferred: false, shouldUpgradeStorage: false };
+        }
+
+        if (!hasRenderableSourceRows()) {
+            return { restored: false, deferred: true, shouldUpgradeStorage: false };
+        }
+
+        const shouldUpgradeStorage = scanAndSyncSources(pendingInitialLoadedState, true);
+        pendingInitialLoadedState = null;
+        return { restored: true, deferred: false, shouldUpgradeStorage };
+    }
+
+    function applyLoadedStateToManager(loadedState) {
+        if (loadedState && loadedState.customHeight != null) {
+            customHeight = loadedState.customHeight;
+            const container = shadowRoot?.querySelector('.sp-container');
+            if (container) container.style.height = `${customHeight}px`;
+        }
+
+        const initialRestore = restoreInitialLoadedState(loadedState);
+        if (initialRestore.deferred) {
+            render();
+            return;
+        }
+
+        render();
+        if (initialRestore.shouldUpgradeStorage) {
+            pendingStorageUpgrade = false;
+            saveState();
+        }
     }
 
     function loadState(callback) {
@@ -995,10 +2095,206 @@
             pendingBatchKeys.clear();
         }
 
+        closeSourceActionMenu();
         buildParentMap();
-        saveState();
+        saveState({ immediate: true });
         render();
         closeMoveToFolderModal();
+    }
+
+    function closeTagModal() {
+        if (!shadowRoot) return;
+        const backdrop = shadowRoot.getElementById('sp-tag-backdrop');
+        const modal = shadowRoot.getElementById('sp-tag-modal');
+
+        if (modal && backdrop) {
+            modal.classList.remove('visible');
+            modal.classList.add('closing');
+            backdrop.classList.remove('visible');
+
+            setTimeout(() => {
+                if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+                if (modal.parentNode) modal.parentNode.removeChild(modal);
+            }, 300);
+            return;
+        }
+
+        if (backdrop) backdrop.remove();
+        if (modal) modal.remove();
+    }
+
+    function renderTagModal(sourceKey = null, draftTagIds = null) {
+        if (!shadowRoot) return;
+
+        const source = sourceKey ? sourcesByKey.get(sourceKey) : null;
+        const selectedTagIds = new Set(sourceKey ? (draftTagIds || getSourceTagIds(sourceKey)) : []);
+        const usageCounts = getTagUsageCounts();
+
+        closeTagModal();
+
+        const backdrop = el('div', { className: 'sp-overlay-backdrop', id: 'sp-tag-backdrop' });
+        const modal = el('div', { className: 'sp-folder-modal sp-tag-modal', id: 'sp-tag-modal' });
+        const title = source ? getMessage('ui_edit_tags') : getMessage('ui_manage_tags');
+        const header = el('div', { className: 'sp-folder-modal-header' }, [
+            el('h3', { className: 'sp-folder-modal-title' }, [title])
+        ]);
+        const content = el('div', { className: 'sp-folder-modal-content sp-tag-modal-content' });
+
+        const createRow = el('div', { className: 'sp-tag-create-row' }, [
+            el('input', {
+                id: 'sp-tag-name-input',
+                className: 'sp-tag-input',
+                placeholder: getMessage('ui_create_tag_placeholder')
+            }),
+            el('button', { className: 'sp-button', id: 'sp-create-tag-btn' }, [getMessage('ui_create_tag')])
+        ]);
+        content.appendChild(createRow);
+
+        if (state.tagOrder.length === 0) {
+            content.appendChild(el('div', { className: 'sp-folder-empty' }, [
+                source ? getMessage('ui_no_tags_for_source') : getMessage('ui_no_tags')
+            ]));
+        } else if (source) {
+            state.tagOrder.forEach((tagId) => {
+                const tag = tagsById.get(tagId);
+                if (!tag) return;
+
+                content.appendChild(el('label', { className: 'sp-tag-option' }, [
+                    el('input', {
+                        type: 'checkbox',
+                        className: 'sp-tag-option-checkbox',
+                        dataset: { tagId },
+                        checked: selectedTagIds.has(tagId)
+                    }),
+                    el('span', { className: 'sp-tag-option-label' }, [tag.label])
+                ]));
+            });
+        } else {
+            state.tagOrder.forEach((tagId) => {
+                const tag = tagsById.get(tagId);
+                if (!tag) return;
+
+                content.appendChild(el('div', { className: 'sp-tag-row' }, [
+                    el('span', { className: 'sp-tag-row-label' }, [tag.label]),
+                    el('span', { className: 'sp-tag-row-count' }, [String(usageCounts.get(tagId) || 0)]),
+                    el('button', {
+                        className: 'sp-tag-row-button sp-rename-tag-btn',
+                        dataset: { tagId },
+                        title: getMessage('ui_rename')
+                    }, [el('span', { className: 'google-symbols' }, ['edit'])]),
+                    el('button', {
+                        className: 'sp-tag-row-button sp-delete-tag-btn',
+                        dataset: { tagId },
+                        title: getMessage('ui_tag_delete')
+                    }, [el('span', { className: 'google-symbols' }, ['delete'])])
+                ]));
+            });
+        }
+
+        const footerChildren = [
+            el('button', { className: 'sp-modal-cancel' }, [getMessage('ui_cancel')])
+        ];
+        if (source) {
+            footerChildren.push(el('button', { className: 'sp-button', id: 'sp-save-tags-btn' }, [getMessage('ui_save')]));
+        }
+        const footer = el('div', { className: 'sp-folder-modal-footer' }, footerChildren);
+
+        footer.querySelector('.sp-modal-cancel').addEventListener('click', closeTagModal);
+        backdrop.addEventListener('click', (event) => {
+            if (event.target === backdrop) {
+                closeTagModal();
+            }
+        });
+
+        modal.appendChild(header);
+        modal.appendChild(content);
+        modal.appendChild(footer);
+        shadowRoot.appendChild(backdrop);
+        shadowRoot.appendChild(modal);
+
+        const createTagInput = modal.querySelector('#sp-tag-name-input');
+        const createTagButton = modal.querySelector('#sp-create-tag-btn');
+        const handleCreateTag = () => {
+            const newTagId = createTag(createTagInput.value);
+            if (!newTagId) return;
+
+            createTagInput.value = '';
+            if (source) {
+                selectedTagIds.add(newTagId);
+                render();
+                saveState({ immediate: true });
+                renderTagModal(sourceKey, Array.from(selectedTagIds));
+                return;
+            }
+
+            saveState({ immediate: true });
+            render();
+            renderTagModal();
+        };
+
+        createTagButton.addEventListener('click', handleCreateTag);
+        createTagInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleCreateTag();
+            }
+        });
+
+        if (source) {
+            modal.querySelector('#sp-save-tags-btn').addEventListener('click', () => {
+                const nextTagIds = Array.from(modal.querySelectorAll('.sp-tag-option-checkbox:checked'))
+                    .map((input) => input.dataset.tagId)
+                    .filter(Boolean);
+                setSourceTagIds(sourceKey, nextTagIds);
+                saveState({ immediate: true });
+                render();
+                closeTagModal();
+            });
+        } else {
+            modal.querySelectorAll('.sp-rename-tag-btn').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const tagId = button.dataset.tagId;
+                    const tag = tagsById.get(tagId);
+                    if (!tag || typeof window.prompt !== 'function') return;
+                    const nextLabel = normalizeTagLabel(window.prompt(getMessage('ui_tag_rename_prompt'), tag.label));
+                    if (!nextLabel || nextLabel === tag.label) return;
+
+                    const duplicateTagId = findExistingTagIdByLabel(nextLabel);
+                    if (duplicateTagId && duplicateTagId !== tagId) {
+                        showToast(getMessage('ui_tag_create_duplicate'));
+                        return;
+                    }
+
+                    tag.label = nextLabel;
+                    saveState({ immediate: true });
+                    render();
+                    renderTagModal();
+                });
+            });
+
+            modal.querySelectorAll('.sp-delete-tag-btn').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const tagId = button.dataset.tagId;
+                    const tag = tagsById.get(tagId);
+                    if (!tag) return;
+
+                    const shouldDelete = typeof window.confirm !== 'function'
+                        ? true
+                        : window.confirm(getMessage('ui_tag_delete_confirm', [tag.label]));
+                    if (!shouldDelete) return;
+
+                    deleteTag(tagId);
+                    saveState({ immediate: true });
+                    render();
+                    renderTagModal();
+                });
+            });
+        }
+
+        requestAnimationFrame(() => {
+            backdrop.classList.add('visible');
+            modal.classList.add('visible');
+        });
     }
 
     // ==========================================
@@ -1096,33 +2392,137 @@
         }
     }
 
+    function renderViewStateBar() {
+        if (!shadowRoot) return;
+        const container = shadowRoot.getElementById('sp-view-state');
+        if (!container) return;
+
+        const fragment = document.createDocumentFragment();
+        const isolatedGroup = activeIsolationGroupId ? groupsById.get(activeIsolationGroupId) : null;
+        const activeTag = state.activeTagId ? tagsById.get(state.activeTagId) : null;
+
+        if (isolatedGroup) {
+            fragment.appendChild(el('div', { className: 'sp-view-banner' }, [
+                el('div', { className: 'sp-view-banner-copy' }, [
+                    el('span', { className: 'sp-view-banner-label' }, [getMessage('ui_isolation_active', [isolatedGroup.title])])
+                ]),
+                el('button', { className: 'sp-button sp-view-banner-btn', id: 'sp-clear-isolate-btn' }, [getMessage('ui_exit_isolate')])
+            ]));
+        }
+
+        if (activeTag) {
+            fragment.appendChild(el('div', { className: 'sp-view-banner' }, [
+                el('div', { className: 'sp-view-banner-copy' }, [
+                    el('span', { className: 'sp-view-banner-label' }, [getMessage('ui_tag_filter_active', [activeTag.label])])
+                ]),
+                el('button', { className: 'sp-button sp-view-banner-btn', id: 'sp-clear-tag-filter-btn' }, [getMessage('ui_clear_tag_filter')])
+            ]));
+        }
+
+        container.hidden = fragment.childNodes.length === 0;
+        patchChildren(container, fragment);
+    }
+
+    function getSourceActionMenuLayer() {
+        if (!shadowRoot) return null;
+
+        let layer = shadowRoot.getElementById('sp-source-actions-layer');
+        if (layer) return layer;
+
+        layer = document.createElement('div');
+        layer.id = 'sp-source-actions-layer';
+        layer.className = 'sp-source-actions-layer';
+        layer.addEventListener('click', handleInteraction);
+        shadowRoot.appendChild(layer);
+        return layer;
+    }
+
+    function renderSourceActionMenuLayer() {
+        const layer = getSourceActionMenuLayer();
+        if (
+            !layer ||
+            !layer.childNodes ||
+            typeof layer.appendChild !== 'function' ||
+            typeof layer.removeChild !== 'function'
+        ) {
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        const sourceKey = activeSourceActionSourceKey;
+        const source = sourceKey ? sourcesByKey.get(sourceKey) : null;
+
+        if (sourceKey && source && canOpenSourceActionMenu(source)) {
+            const actionButton = findSourceActionButton(sourceKey);
+            sourceActionMenuPosition = getSourceActionMenuPosition(actionButton);
+        }
+
+        if (sourceKey && source && sourceActionMenuPosition && canOpenSourceActionMenu(source)) {
+            fragment.appendChild(el('div', {
+                className: 'sp-source-actions-menu' + (sourceActionMenuPosition.placement === 'top' ? ' is-top' : ''),
+                role: 'menu',
+                'aria-label': getMessage('ui_source_actions'),
+                style: `top:${Math.round(sourceActionMenuPosition.top)}px;left:${Math.round(sourceActionMenuPosition.left)}px;`
+            }, [
+                el('button', {
+                    type: 'button',
+                    className: 'sp-source-actions-menu-item',
+                    dataset: { sourceKey, action: 'tags' },
+                    role: 'menuitem',
+                    title: getMessage('ui_edit_tags')
+                }, [
+                    el('span', { className: 'google-symbols' }, ['sell']),
+                    el('span', { className: 'sp-source-actions-menu-label' }, [getMessage('ui_edit_tags')])
+                ]),
+                el('button', {
+                    type: 'button',
+                    className: 'sp-source-actions-menu-item',
+                    dataset: { sourceKey, action: 'move' },
+                    role: 'menuitem',
+                    title: getMessage('ui_move_to_folder')
+                }, [
+                    el('span', { className: 'google-symbols' }, ['drive_file_move']),
+                    el('span', { className: 'sp-source-actions-menu-label' }, [getMessage('ui_move_to_folder')])
+                ]),
+                el('button', {
+                    type: 'button',
+                    className: 'sp-source-actions-menu-item',
+                    dataset: { sourceKey, action: 'native-more' },
+                    role: 'menuitem',
+                    title: getMessage('ui_open_native_menu')
+                }, [
+                    el('span', { className: 'google-symbols' }, ['open_in_new']),
+                    el('span', { className: 'sp-source-actions-menu-label' }, [getMessage('ui_open_native_menu')])
+                ])
+            ]));
+        }
+
+        patchChildren(layer, fragment);
+    }
+
     function render() {
         if (!shadowRoot) return;
         const listContainer = shadowRoot.querySelector('#sources-list');
         if (!listContainer) return;
 
-        const filterQuery = (state.filterQuery || '').toLowerCase();
-        const fragment = document.createDocumentFragment();
+        syncActiveSourceActionMenuState();
+        syncSearchUi();
+        renderViewStateBar();
 
-        const hasMatchingDescendant = (group) => {
-            if (!filterQuery) return true;
-            for (const child of group.children) {
-                if (child.type === 'source') {
-                    const source = sourcesByKey.get(child.key);
-                    if (source && source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)) return true;
-                } else if (child.type === 'group') {
-                    const childGroup = groupsById.get(child.id);
-                    if (childGroup && hasMatchingDescendant(childGroup)) return true;
-                }
-            }
-            return false;
-        };
+        const fragment = document.createDocumentFragment();
+        const activeFilters = hasActiveRenderFilters();
 
         const renderSourceItem = (source) => {
-            if (!source || (filterQuery && (!source.lowercaseTitle || !source.lowercaseTitle.includes(filterQuery)))) return null;
-            const isGated = !areAllAncestorsEnabled(source.key);
+            if (!source || !sourceMatchesCurrentFilters(source)) return null;
+            const isGated = !areAllAncestorsEnabled(source.key) || !isSourceWithinActiveIsolation(source.key);
             const isFailed = source.isDisabled && !source.isLoading;
             const isLoading = source.isLoading;
+            const showSourceActionButton = !state.isBatchMode;
+            const canOpenActions = canOpenSourceActionMenu(source);
+            const isSourceActionMenuOpen = canOpenActions && activeSourceActionSourceKey === source.key;
+            const orderedSourceTags = getSourceTagIds(source.key)
+                .map((tagId) => tagsById.get(tagId))
+                .filter(Boolean);
 
             let extraClasses = '';
             if (isGated) extraClasses += ' gated';
@@ -1131,8 +2531,8 @@
             if (state.isBatchMode && pendingBatchKeys.has(source.key)) extraClasses += ' selected-for-batch';
 
             let titleAttr = false;
-            if (isFailed) titleAttr = chrome.i18n.getMessage("ui_source_import_failed");
-            if (isLoading) titleAttr = chrome.i18n.getMessage("ui_source_parsing");
+            if (isFailed) titleAttr = getMessage('ui_source_import_failed');
+            if (isLoading) titleAttr = getMessage('ui_source_parsing');
 
             return el('div', {
                 className: 'source-item' + extraClasses,
@@ -1141,35 +2541,46 @@
                 title: titleAttr
             }, [
                 el('div', { className: 'icon-container' }, [
-                    isLoading ?
-                        el('div', { className: 'sp-spinner' }) :
-                        el('mat-icon', { className: `${source.iconColorClass || 'icon-color'} mat-icon google-symbols` }, [isFailed ? 'error' : source.iconName])
+                    isLoading
+                        ? el('div', { className: 'sp-spinner' })
+                        : el('mat-icon', { className: `${source.iconColorClass || 'icon-color'} mat-icon google-symbols` }, [isFailed ? 'error' : source.iconName])
                 ]),
-                el('div', { className: 'menu-container' }, [
-                    // Only show standard options buttons when not in delete mode AND not loading
-                    !state.isBatchMode && !isLoading ? el('button', {
-                        className: 'sp-move-to-folder-button',
+                showSourceActionButton ? el('div', {
+                    className: 'sp-source-actions-anchor' + (isSourceActionMenuOpen ? ' is-open' : '')
+                }, [
+                    el('button', {
+                        type: 'button',
+                        className: 'sp-source-actions-button',
                         dataset: { sourceKey: source.key },
-                        title: chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder"
+                        title: getMessage('ui_source_actions'),
+                        'aria-label': getMessage('ui_source_actions'),
+                        'aria-haspopup': 'menu',
+                        'aria-expanded': isSourceActionMenuOpen ? 'true' : 'false',
+                        disabled: !canOpenActions
                     }, [
-                        el('span', { className: 'google-symbols' }, ['drive_file_move'])
-                    ]) : '',
-                    !state.isBatchMode && !isLoading ? el('button', { className: 'sp-more-button', dataset: { sourceKey: source.key } }, [
-                        el('span', { className: 'google-symbols' }, ['more_vert'])
-                    ]) : ''
+                        el('span', { className: 'google-symbols' }, ['more_horiz'])
+                    ])
+                ]) : '',
+                el('div', { className: 'title-container' }, [
+                    el('div', { className: 'source-title-text' }, [source.title]),
+                    orderedSourceTags.length > 0 ? el('div', { className: 'source-tag-list' }, orderedSourceTags.map((tag) => (
+                        el('button', {
+                            className: 'sp-tag-pill' + (state.activeTagId === tag.id ? ' is-active' : ''),
+                            dataset: { tagId: tag.id },
+                            title: getMessage('ui_tag_filter_active', [tag.label])
+                        }, [tag.label])
+                    ))) : ''
                 ]),
-                el('div', { className: 'title-container' }, [source.title]),
                 el('div', { className: 'checkbox-container' }, [
-                    state.isBatchMode ?
-                        el('input', {
+                    state.isBatchMode
+                        ? el('input', {
                             type: 'checkbox',
                             className: 'sp-batch-checkbox sp-checkbox',
                             dataset: { sourceKey: source.key },
                             checked: pendingBatchKeys.has(source.key),
                             disabled: isFailed || isLoading
                         })
-                        :
-                        el('input', {
+                        : el('input', {
                             type: 'checkbox',
                             className: 'sp-checkbox',
                             dataset: { sourceKey: source.key },
@@ -1181,24 +2592,28 @@
         };
 
         const renderGroup = (group, level) => {
-            if (!hasMatchingDescendant(group)) return null;
+            if (!shouldRenderGroup(group)) return null;
 
-            const isGated = !group.enabled || !areAllAncestorsEnabled(group.id);
+            const isGated = !group.enabled || !areAllAncestorsEnabled(group.id) || !isGroupWithinActiveIsolation(group.id);
             const { on, total } = getGroupEffectiveState(group);
-
             const childrenElements = [];
-            group.children.forEach(child => {
+
+            group.children.forEach((child) => {
                 if (child.type === 'source') {
-                    const elNode = renderSourceItem(sourcesByKey.get(child.key));
-                    if (elNode) childrenElements.push(elNode);
-                } else if (child.type === 'group') {
-                    const childGroup = groupsById.get(child.id);
-                    if (childGroup) {
-                        const childElement = renderGroup(childGroup, 0);
-                        if (childElement) childrenElements.push(childElement);
-                    }
+                    const sourceElement = renderSourceItem(sourcesByKey.get(child.key));
+                    if (sourceElement) childrenElements.push(sourceElement);
+                    return;
                 }
+
+                const childGroup = groupsById.get(child.id);
+                if (!childGroup) return;
+                const childElement = renderGroup(childGroup, level + 1);
+                if (childElement) childrenElements.push(childElement);
             });
+
+            if (childrenElements.length === 0 && !activeFilters) {
+                childrenElements.push(el('div', { className: 'sp-empty-state' }, [getMessage('ui_empty_group')]));
+            }
 
             const groupEl = el('div', {
                 className: 'group-container' + (isGated ? ' gated' : '') + (group.isNewlyCreated ? ' sp-folder-enter' : ''),
@@ -1208,28 +2623,30 @@
                 el('div', { className: 'group-header', draggable: !state.isBatchMode ? 'true' : 'false', dataset: { dragType: 'group', groupId: group.id } }, [
                     el('button', {
                         className: 'sp-caret' + (group.collapsed ? ' collapsed' : ''),
-                        title: group.collapsed ? chrome.i18n.getMessage("ui_expand") : chrome.i18n.getMessage("ui_collapse")
+                        title: group.collapsed ? getMessage('ui_expand') : getMessage('ui_collapse')
                     }, [
                         el('span', { className: 'google-symbols' }, ['arrow_drop_down'])
                     ]),
                     !state.isBatchMode ? el('label', {
                         className: 'sp-toggle-switch',
-                        title: group.enabled ? chrome.i18n.getMessage("ui_disable_group") : chrome.i18n.getMessage("ui_enable_group")
+                        title: group.enabled ? getMessage('ui_disable_group') : getMessage('ui_enable_group')
                     }, [
                         el('input', { type: 'checkbox', className: 'sp-group-toggle-checkbox', dataset: { groupId: group.id }, checked: group.enabled }),
                         el('span', { className: 'sp-toggle-slider' })
                     ]) : '',
                     el('span', { className: 'group-title' }, ['📁 ' + group.title]),
                     el('span', { className: 'badge' }, [` ${on} / ${total} `]),
-                    el('button', { className: 'sp-add-subgroup-button', title: chrome.i18n.getMessage("ui_add_subgroup") }, [el('span', { className: 'google-symbols' }, ['create_new_folder'])]),
-                    el('button', { className: 'sp-isolate-button', title: chrome.i18n.getMessage("ui_isolate_group") }, [el('span', { className: 'google-symbols' }, ['filter_center_focus'])]),
-                    el('button', { className: 'sp-edit-button', title: chrome.i18n.getMessage("ui_rename") }, [el('span', { className: 'google-symbols' }, ['edit'])]),
-                    el('button', { className: 'sp-delete-button', title: chrome.i18n.getMessage("ui_delete_group") }, [el('span', { className: 'google-symbols' }, ['delete'])])
+                    el('button', { className: 'sp-add-subgroup-button', title: getMessage('ui_add_subgroup') }, [el('span', { className: 'google-symbols' }, ['create_new_folder'])]),
+                    el('button', {
+                        className: 'sp-isolate-button' + (activeIsolationGroupId === group.id ? ' is-active' : ''),
+                        title: getMessage('ui_isolate_group')
+                    }, [el('span', { className: 'google-symbols' }, ['filter_center_focus'])]),
+                    el('button', { className: 'sp-edit-button', title: getMessage('ui_rename') }, [el('span', { className: 'google-symbols' }, ['edit'])]),
+                    el('button', { className: 'sp-delete-button', title: getMessage('ui_delete_group') }, [el('span', { className: 'google-symbols' }, ['delete'])])
                 ]),
                 el('div', { className: 'group-children' + (group.collapsed ? ' collapsed' : '') }, childrenElements)
             ]);
 
-            // Remove the flag so it only animates once
             if (group.isNewlyCreated) {
                 delete group.isNewlyCreated;
             }
@@ -1237,52 +2654,62 @@
             return groupEl;
         };
 
-        state.groups.forEach(groupId => {
+        const rootGroupIds = activeIsolationGroupId && groupsById.has(activeIsolationGroupId)
+            ? [activeIsolationGroupId]
+            : state.groups;
+
+        rootGroupIds.forEach((groupId) => {
             const group = groupsById.get(groupId);
-            if (group) {
-                const groupElement = renderGroup(group, 0);
-                if (groupElement) fragment.appendChild(groupElement);
+            const groupElement = renderGroup(group, 0);
+            if (groupElement) {
+                fragment.appendChild(groupElement);
             }
         });
 
-        const matchingUngrouped = state.ungrouped.filter(key => {
-            const source = sourcesByKey.get(key);
-            return source && (!filterQuery || (source.lowercaseTitle && source.lowercaseTitle.includes(filterQuery)));
-        });
-
-        if (matchingUngrouped.length > 0) {
-            const ungroupedHeader = document.createElement('h4');
-            ungroupedHeader.className = 'ungrouped-header';
-            ungroupedHeader.textContent = chrome.i18n.getMessage("ui_ungrouped");
-            fragment.appendChild(ungroupedHeader);
-
-            matchingUngrouped.forEach(key => {
-                const sourceElement = renderSourceItem(sourcesByKey.get(key));
-                if (sourceElement) {
-                    fragment.appendChild(sourceElement);
-                }
+        if (!activeIsolationGroupId) {
+            const matchingUngrouped = state.ungrouped.filter((key) => {
+                const source = sourcesByKey.get(key);
+                return source && sourceMatchesCurrentFilters(source);
             });
+
+            if (matchingUngrouped.length > 0) {
+                const ungroupedHeader = document.createElement('h4');
+                ungroupedHeader.className = 'ungrouped-header';
+                ungroupedHeader.textContent = getMessage('ui_ungrouped');
+                fragment.appendChild(ungroupedHeader);
+
+                matchingUngrouped.forEach((key) => {
+                    const sourceElement = renderSourceItem(sourcesByKey.get(key));
+                    if (sourceElement) {
+                        fragment.appendChild(sourceElement);
+                    }
+                });
+            }
         }
 
-        // Render Batch Action Bar
+        if (fragment.childNodes.length === 0) {
+            fragment.appendChild(el('div', { className: 'sp-empty-state' }, [getMessage('ui_no_matching_sources')]));
+        }
+
         if (state.isBatchMode) {
             const actionBar = el('div', { className: 'sp-batch-action-bar' }, [
-                el('button', { className: 'sp-button sp-cancel-batch-btn' }, [chrome.i18n.getMessage("ui_cancel")]),
+                el('button', { className: 'sp-button sp-cancel-batch-btn' }, [getMessage('ui_cancel')]),
                 el('div', { className: 'sp-batch-actions' }, [
                     el('button', {
                         className: 'sp-button sp-batch-add-folder-btn',
                         disabled: pendingBatchKeys.size === 0 || isDeletingSources
-                    }, [chrome.i18n.getMessage("ui_batch_add_count", [pendingBatchKeys.size.toString()])]),
+                    }, [getMessage('ui_batch_add_count', [pendingBatchKeys.size.toString()])]),
                     el('button', {
                         className: 'sp-button sp-confirm-delete-btn',
                         disabled: pendingBatchKeys.size === 0 || isDeletingSources
-                    }, [isDeletingSources ? chrome.i18n.getMessage("ui_deleting") : chrome.i18n.getMessage("ui_delete_count", [pendingBatchKeys.size.toString()])])
+                    }, [isDeletingSources ? getMessage('ui_deleting') : getMessage('ui_delete_count', [pendingBatchKeys.size.toString()])])
                 ])
             ]);
             fragment.appendChild(actionBar);
         }
 
         patchChildren(listContainer, fragment);
+        renderSourceActionMenuLayer();
     }
 
     // --- Action & Event Handlers ---
@@ -1290,7 +2717,7 @@
         // Inject the one-time isNewlyCreated flag for the entry animation
         const newGroup = {
             id: `group_${Date.now()}`,
-            title: parentGroupId ? chrome.i18n.getMessage("ui_new_subgroup") : chrome.i18n.getMessage("ui_new_group"),
+            title: parentGroupId ? getMessage('ui_new_subgroup') : getMessage('ui_new_group'),
             children: [],
             enabled: true,
             collapsed: false,
@@ -1305,7 +2732,7 @@
         }
         buildParentMap();
         render();
-        saveState();
+        saveState({ immediate: true });
     }
 
     function syncSourceToPage(source, desiredState) {
@@ -1402,6 +2829,44 @@
         const target = event.target;
         const groupContainer = target.closest('.group-container');
         const groupId = groupContainer?.dataset.groupId;
+        const sourceRow = target.closest('.source-item');
+        const sourceKey = sourceRow?.dataset.sourceKey;
+        const sourceActionsButton = target.closest('.sp-source-actions-button');
+        const sourceActionsMenuItem = target.closest('.sp-source-actions-menu-item');
+
+        if (sourceActionsMenuItem) {
+            handleSourceActionSelection(sourceActionsMenuItem.dataset.sourceKey, sourceActionsMenuItem.dataset.action);
+            render();
+            return;
+        }
+
+        if (sourceActionsButton) {
+            toggleSourceActionMenu(sourceActionsButton.dataset.sourceKey, sourceActionsButton);
+            render();
+            return;
+        }
+
+        if (target.closest('.sp-tag-pill')) {
+            const tagId = target.closest('.sp-tag-pill').dataset.tagId;
+            state.activeTagId = state.activeTagId === tagId ? null : tagId;
+            render();
+            return;
+        }
+
+        if (target.closest('#sp-clear-isolate-btn')) {
+            const oldStates = collectEffectiveSourceStates();
+            activeIsolationGroupId = null;
+            syncSourcesToEffectiveState(oldStates);
+            render();
+            showToast(getMessage('ui_isolation_cleared_toast'));
+            return;
+        }
+
+        if (target.closest('#sp-clear-tag-filter-btn')) {
+            state.activeTagId = null;
+            render();
+            return;
+        }
 
         if (target.closest('.sp-add-subgroup-button')) { handleAddNewGroup(groupId); return; }
         if (target.closest('.sp-caret')) {
@@ -1439,87 +2904,46 @@
             return;
         }
         if (target.closest('.sp-isolate-button')) {
-            const oldStates = getEffectivelyEnabledSources();
-
-            groupsById.forEach(g => { g.enabled = (g.id === groupId); });
-
-            const newStates = getEffectivelyEnabledSources();
-
-            oldStates.forEach((_, key) => {
-                if (!newStates.has(key)) {
-                    syncSourceToPage(sourcesByKey.get(key), false);
-                }
-            });
-            newStates.forEach((_, key) => {
-                if (!oldStates.has(key)) {
-                    syncSourceToPage(sourcesByKey.get(key), true);
-                }
-            });
-
+            const oldStates = collectEffectiveSourceStates();
+            activeIsolationGroupId = activeIsolationGroupId === groupId ? null : groupId;
+            syncSourcesToEffectiveState(oldStates);
             render();
-            saveState();
-            showToast(`Isolated "${groupsById.get(groupId).title}"`);
+            showToast(
+                activeIsolationGroupId
+                    ? getMessage('ui_isolated_toast', [groupsById.get(groupId).title])
+                    : getMessage('ui_isolation_cleared_toast')
+            );
             return;
         }
 
-        // MODIFIED: Logic is now split. This handles the new group toggle switch.
         if (target.classList.contains('sp-group-toggle-checkbox')) {
             const targetGroupId = target.dataset.groupId;
             const group = groupsById.get(targetGroupId);
             if (group) {
-                const descendantKeys = [];
-                const getKeys = (g) => {
-                    if (!g) return;
-                    g.children.forEach(c => {
-                        if (c.type === 'source') descendantKeys.push(c.key);
-                        else getKeys(groupsById.get(c.id));
-                    });
-                };
-                getKeys(group);
-
-                const oldEffectiveStates = new Map();
-                descendantKeys.forEach(key => {
-                    oldEffectiveStates.set(key, isSourceEffectivelyEnabled(sourcesByKey.get(key)));
-                });
-
+                const oldEffectiveStates = collectEffectiveSourceStates();
                 group.enabled = target.checked;
-
-                descendantKeys.forEach(key => {
-                    const source = sourcesByKey.get(key);
-                    const newEffectiveState = isSourceEffectivelyEnabled(source);
-                    if (oldEffectiveStates.get(key) !== newEffectiveState) {
-                        syncSourceToPage(source, newEffectiveState);
-                    }
-                });
-
+                syncSourcesToEffectiveState(oldEffectiveStates);
                 saveState();
                 render();
             }
+            return;
         }
-        // MODIFIED: This now only handles individual source checkboxes.
-        else if (target.classList.contains('sp-checkbox')) {
-            const sourceKey = target.dataset.sourceKey;
-            if (sourceKey) {
-                const source = sourcesByKey.get(sourceKey);
+
+        if (target.classList.contains('sp-checkbox')) {
+            const checkboxSourceKey = target.dataset.sourceKey;
+            if (checkboxSourceKey) {
+                const source = sourcesByKey.get(checkboxSourceKey);
                 if (source && !source.isDisabled) {
                     source.enabled = target.checked;
-                    if (areAllAncestorsEnabled(sourceKey)) {
-                        syncSourceToPage(source, source.enabled);
-                    }
+                    syncSourceToPage(source, isSourceEffectivelyEnabled(source));
                     saveState();
-
-                    // Localized Badge Update instead of full re-render
-                    const groupObj = findParentGroupOfSource(sourceKey);
-                    if (groupObj) {
-                        const { on, total } = getGroupEffectiveState(groupObj);
-                        const badgeEl = shadowRoot.querySelector(`[data-group-id="${groupObj.id}"] .badge`);
-                        if (badgeEl) badgeEl.textContent = ` ${on} / ${total} `;
-                    }
+                    render();
                 }
             }
+            return;
         }
-        // Handle clicking on the group header to toggle collapse (unless clicking a button/input)
-        else if (target.closest('.group-header') && !target.closest('.sp-caret, .sp-toggle-switch, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button, input')) {
+
+        if (target.closest('.group-header') && !target.closest('.sp-caret, .sp-toggle-switch, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button, input')) {
             const g = groupsById.get(groupId);
             if (g) {
                 g.collapsed = !g.collapsed;
@@ -1546,11 +2970,10 @@
                 }
                 saveState();
             }
+            return;
         }
-        // Handle clicking on the source item row to toggle checkbox (unless clicking button/checkbox)
-        else if (target.closest('.source-item') && !target.closest('.sp-more-button, .sp-move-to-folder-button, input, .sp-batch-checkbox')) {
-            const sourceRow = target.closest('.source-item');
-            const sourceKey = sourceRow.dataset.sourceKey;
+
+        if (sourceRow && !target.closest('.sp-source-actions-anchor, .sp-source-actions-menu, .sp-tag-pill, input, .sp-batch-checkbox')) {
             const source = sourcesByKey.get(sourceKey);
 
             if (source && source.isDisabled) {
@@ -1582,36 +3005,26 @@
 
                 if (source) {
                     source.enabled = checkbox.checked;
-                    if (areAllAncestorsEnabled(sourceKey)) {
-                        syncSourceToPage(source, source.enabled);
-                    }
+                    syncSourceToPage(source, isSourceEffectivelyEnabled(source));
                     saveState();
-
-                    // Localized Badge Update
-                    const groupObj = findParentGroupOfSource(sourceKey);
-                    if (groupObj) {
-                        const { on, total } = getGroupEffectiveState(groupObj);
-                        const badgeEl = shadowRoot.querySelector(`[data-group-id="${groupObj.id}"] .badge`);
-                        if (badgeEl) badgeEl.textContent = ` ${on} / ${total} `;
-                    }
+                    render();
                 }
             }
+            return;
         }
 
-        // Handle Batch Checkbox explicit click directly
         const batchCheckbox = target.closest('.sp-batch-checkbox');
         if (batchCheckbox) {
-            const sourceKey = batchCheckbox.dataset.sourceKey;
-            if (pendingBatchKeys.has(sourceKey)) {
-                pendingBatchKeys.delete(sourceKey);
+            const batchSourceKey = batchCheckbox.dataset.sourceKey;
+            if (pendingBatchKeys.has(batchSourceKey)) {
+                pendingBatchKeys.delete(batchSourceKey);
             } else {
-                pendingBatchKeys.add(sourceKey);
+                pendingBatchKeys.add(batchSourceKey);
             }
             render();
             return;
         }
 
-        // Handle Batch Action Bar Buttons
         if (target.closest('.sp-cancel-batch-btn')) {
             state.isBatchMode = false;
             pendingBatchKeys.clear();
@@ -1628,39 +3041,21 @@
             renderMoveToFolderModal(pendingBatchKeys);
             return;
         }
-
-        const moreButton = target.closest('.sp-more-button');
-        if (moreButton) {
-            const key = moreButton.dataset.sourceKey;
-            const source = sourcesByKey.get(key);
-            if (source?.element) {
-                const nativeBtn = findElement(DEPS.moreBtn, source.element);
-                if (nativeBtn) {
-                    // With styles.css now using `position: absolute`/`opacity: 0` instead of `display: none`,
-                    // the native elements maintain their bounding rectangles in the DOM.
-                    // This means Angular CDK can measure them directly without hacks.
-                    nativeBtn.click();
-                }
-            }
-        }
         const editButton = target.closest('.sp-edit-button');
         if (editButton) {
             triggerRename(groupContainer);
+            return;
         }
 
-        // --- Added: Delete Group ---
         const deleteButton = target.closest('.sp-delete-button');
         if (deleteButton) {
             const group = groupsById.get(groupId);
             if (!group) return;
 
-            // Optional custom confirm dialog style can be added. Using browser confirm for simplicity.
             if (group.children.length === 0) {
-                // Empty folder, just delete
                 removeGroupFromTree(groupId);
                 groupsById.delete(groupId);
             } else {
-                // Folder has contents
                 const deleteContents = window.confirm(
                     `The folder "${group.title}" is not empty.\n\n` +
                     `[OK] Delete folder AND move its contents to "Ungrouped"\n` +
@@ -1668,7 +3063,6 @@
                 );
 
                 if (deleteContents) {
-                    // Extract children back to ungrouped / groups level
                     const extractChildren = (g) => {
                         g.children.forEach(c => {
                             if (c.type === 'source') {
@@ -1682,20 +3076,18 @@
                     removeGroupFromTree(groupId);
                     groupsById.delete(groupId);
                 } else {
-                    return; // Cancelled
+                    return;
                 }
             }
+            if (activeIsolationGroupId === groupId) {
+                activeIsolationGroupId = null;
+            }
             buildParentMap();
-            saveState();
+            saveState({ immediate: true });
             render();
+            return;
         }
 
-        // --- Move To Folder Modal Trigger ---
-        const moveButton = target.closest('.sp-move-to-folder-button');
-        if (moveButton) {
-            const key = moveButton.dataset.sourceKey;
-            renderMoveToFolderModal(key);
-        }
     }
 
     function handleOriginalCheckboxChange(event) {
@@ -1722,21 +3114,19 @@
             const source = sourcesByKey.get(key);
             if (source && source.enabled !== checkbox.checked) {
                 source.enabled = checkbox.checked;
+                const desiredState = isSourceEffectivelyEnabled(source);
 
-                // Localized View Sync
                 const virtualCheckbox = shadowRoot.querySelector(`.sp-checkbox[data-source-key="${key}"]`);
                 if (virtualCheckbox) {
-                    virtualCheckbox.checked = checkbox.checked;
+                    virtualCheckbox.checked = source.enabled;
                 }
 
-                // Localized Badge Update
-                const groupObj = findParentGroupOfSource(key);
-                if (groupObj) {
-                    const { on, total } = getGroupEffectiveState(groupObj);
-                    const badgeEl = shadowRoot.querySelector(`[data-group-id="${groupObj.id}"] .badge`);
-                    if (badgeEl) badgeEl.textContent = ` ${on} / ${total} `;
+                if (checkbox.checked !== desiredState) {
+                    syncSourceToPage(source, desiredState);
                 }
+
                 saveState();
+                render();
             }
         }
     }
@@ -1763,7 +3153,7 @@
             const newTitle = input.value.trim();
             if (newTitle) group.title = newTitle;
             cleanup();
-            saveState();
+            saveState({ immediate: true });
         };
         const handleKey = (e) => {
             if (e.key === 'Enter') {
@@ -1894,7 +3284,7 @@
 
         buildParentMap();
         render();
-        saveState();
+        saveState({ immediate: true });
     }
 
     function handleDragEnd(e) {
@@ -1907,16 +3297,22 @@
     // --- Initialization & Observation ---
     function scanAndSyncSources(loadedState, isFirstLoad = false) {
         const oldSourcesMap = new Map();
+        const oldSourceTags = new Map();
+        const previousSourceRecordsByKey = !isFirstLoad ? snapshotExistingSourceRecords() : new Map();
         if (!isFirstLoad) {
             sourcesByKey.forEach((source, key) => {
                 oldSourcesMap.set(key, { enabled: source.enabled });
             });
+            sourceTagsById.forEach((tagIds, key) => {
+                oldSourceTags.set(key, [...tagIds]);
+            });
         }
 
         sourcesByKey.clear();
+        sourceTagsById.clear();
         keyByElement = new WeakMap();
 
-        const sourceElements = Array.from(queryAllElements(DEPS.row));
+        const sourceElements = getSourceElements();
         if (sourceElements.length === 0 && Array.from(document.body.children).length > 2) {
             // The native panel can be empty while NotebookLM is still loading initial results.
         }
@@ -1927,9 +3323,21 @@
             createSourceDescriptor(sourceElement, seenSourceIds, seenLegacyKeys)
         ));
         const sourceLookup = buildSourceLookup(currentSources);
+        const normalizedTagState = isFirstLoad ? buildNormalizedTagState(loadedState) : null;
         const resolvedSourceStateById = isFirstLoad
             ? buildResolvedSourceStateById(sourceLookup, loadedState)
             : new Map();
+        const resolvedSourceTagsById = isFirstLoad
+            ? buildResolvedSourceTagsById(sourceLookup, loadedState)
+            : new Map();
+
+        if (isFirstLoad && normalizedTagState) {
+            tagsById.clear();
+            normalizedTagState.nextTagsById.forEach((tag, tagId) => {
+                tagsById.set(tagId, tag);
+            });
+            state.tagOrder = normalizedTagState.nextTagOrder;
+        }
 
         let knownSourceRefs = new Set();
         if (isFirstLoad) {
@@ -1942,12 +3350,25 @@
             });
             knownSourceRefs = reconciledTree.seenSourceRefs;
         } else {
-            groupsById.forEach((group) => {
-                group.children.forEach((child) => {
-                    if (child.type === 'source') knownSourceRefs.add(child.key);
-                });
+            const remappedState = remapExistingStateToCurrentSources(sourceLookup, {
+                sourceRecordsByKey: previousSourceRecordsByKey,
+                sourceTagsById: oldSourceTags
             });
-            state.ungrouped.forEach((key) => knownSourceRefs.add(key));
+            state.groups = remappedState.groups;
+            state.ungrouped = remappedState.ungrouped;
+            groupsById.clear();
+            remappedState.groupsById.forEach((group, groupId) => {
+                groupsById.set(groupId, group);
+            });
+            oldSourcesMap.clear();
+            remappedState.sourceStateById.forEach((sourceRecord, sourceKey) => {
+                oldSourcesMap.set(sourceKey, { enabled: Boolean(sourceRecord.enabled) });
+            });
+            oldSourceTags.clear();
+            remappedState.sourceTagsById.forEach((tagIds, sourceKey) => {
+                oldSourceTags.set(sourceKey, [...tagIds]);
+            });
+            knownSourceRefs = remappedState.seenSourceRefs;
         }
 
         currentSources.forEach((source) => {
@@ -1969,12 +3390,22 @@
 
             sourcesByKey.set(source.key, hydratedSource);
             keyByElement.set(source.element, source.key);
+            setSourceTagIds(
+                source.key,
+                isFirstLoad
+                    ? (resolvedSourceTagsById.get(source.key) || [])
+                    : (oldSourceTags.get(source.key) || [])
+            );
 
             if (!knownSourceRefs.has(source.key)) {
                 state.ungrouped.push(source.key);
                 knownSourceRefs.add(source.key);
             }
         });
+
+        if (state.activeTagId && !tagsById.has(state.activeTagId)) {
+            state.activeTagId = null;
+        }
 
         buildParentMap();
         sourcesByKey.forEach((source) => {
@@ -1986,6 +3417,20 @@
 
     const debouncedScanAndSync = debounce(() => {
         try {
+            if (pendingInitialLoadedState) {
+                const pendingRestore = flushPendingInitialLoadedState();
+                if (pendingRestore.deferred) {
+                    return;
+                }
+
+                render();
+                if (pendingRestore.shouldUpgradeStorage) {
+                    pendingStorageUpgrade = false;
+                    saveState();
+                }
+                return;
+            }
+
             // Pass false for isFirstLoad because this is triggered by DOM mutations
             scanAndSyncSources({}, false);
             render();
@@ -1994,6 +3439,14 @@
             console.error("NotebookLM Source Management: Error syncing state during DOM change.", e);
         }
     }, 500);
+
+    const debouncedPanelLifecycleSync = debounce(() => {
+        try {
+            syncManagerWithPanelLifecycle();
+        } catch (error) {
+            console.error("NotebookLM Source Management: Error syncing panel lifecycle.", error);
+        }
+    }, 80);
 
     function handleDomChanges(mutations) {
         try {
@@ -2040,7 +3493,72 @@
         }
     }
 
+    function resetManagerRuntimeState() {
+        groupsById.clear();
+        sourcesByKey.clear();
+        tagsById.clear();
+        sourceTagsById.clear();
+        parentMap.clear();
+        keyByElement = new WeakMap();
+        state.groups = [];
+        state.ungrouped = [];
+        state.filterQuery = '';
+        state.isBatchMode = false;
+        state.tagOrder = [];
+        state.activeTagId = null;
+        pendingBatchKeys.clear();
+        activeIsolationGroupId = null;
+        isSearchExpanded = false;
+        activeSourceActionSourceKey = null;
+        sourceActionMenuPosition = null;
+        isSyncingState = false;
+        clickQueue = [];
+        isProcessingQueue = false;
+        freshRowCache = null;
+        pendingStorageUpgrade = false;
+        pendingInitialLoadedState = null;
+        attachedSourcePanel = null;
+        managerStatusReason = 'manager_not_ready';
+    }
+
+    function detachManagerForPanelCollapse() {
+        flushPendingStateSave();
+        pendingPanelReattachState = capturePendingPanelReattachState();
+
+        if (scrollObserver) {
+            scrollObserver.disconnect();
+            scrollObserver = null;
+        }
+        if (healthCheckInterval) {
+            clearTimeout(healthCheckInterval);
+            healthCheckInterval = null;
+        }
+        document.removeEventListener('change', handleOriginalCheckboxChange, true);
+        document.removeEventListener('click', handleDocumentOutsideClick, true);
+        if (shadowRoot && typeof shadowRoot.removeEventListener === 'function') {
+            shadowRoot.removeEventListener('scroll', handleSourceActionMenuViewportChange, true);
+        }
+        if (shadowRoot && shadowRoot.host) {
+            shadowRoot.host.remove();
+            shadowRoot = null;
+        }
+        extensionHost = null;
+        if (focusHighlightTimeout) {
+            clearTimeout(focusHighlightTimeout);
+            focusHighlightTimeout = null;
+        }
+        if (window && typeof window.removeEventListener === 'function') {
+            window.removeEventListener('pagehide', handlePageLifecyclePersistence);
+            window.removeEventListener('resize', handleSourceActionMenuViewportChange);
+        }
+        document.removeEventListener('visibilitychange', handlePageLifecyclePersistence);
+        cancelPendingStateSave();
+        removeGlobalOverlayStyle();
+        resetManagerRuntimeState();
+    }
+
     function teardown() {
+        bindPanelLifecycleHooks(null);
         if (scrollObserver) {
             scrollObserver.disconnect();
             scrollObserver = null;
@@ -2050,6 +3568,10 @@
             healthCheckInterval = null;
         }
         document.removeEventListener('change', handleOriginalCheckboxChange, true);
+        document.removeEventListener('click', handleDocumentOutsideClick, true);
+        if (shadowRoot && typeof shadowRoot.removeEventListener === 'function') {
+            shadowRoot.removeEventListener('scroll', handleSourceActionMenuViewportChange, true);
+        }
         if (shadowRoot && shadowRoot.host) {
             shadowRoot.host.remove();
             shadowRoot = null;
@@ -2063,21 +3585,76 @@
             clearTimeout(routeRecoveryTimeout);
             routeRecoveryTimeout = null;
         }
+        if (window && typeof window.removeEventListener === 'function') {
+            window.removeEventListener('pagehide', handlePageLifecyclePersistence);
+            window.removeEventListener('resize', handleSourceActionMenuViewportChange);
+        }
+        document.removeEventListener('visibilitychange', handlePageLifecyclePersistence);
+        cancelPendingStateSave();
         removeGlobalOverlayStyle();
         groupsById.clear();
         sourcesByKey.clear();
+        tagsById.clear();
+        sourceTagsById.clear();
         parentMap.clear();
         keyByElement = new WeakMap();
         state.groups = [];
         state.ungrouped = [];
         state.filterQuery = '';
         state.isBatchMode = false;
+        state.tagOrder = [];
+        state.activeTagId = null;
+        activeIsolationGroupId = null;
+        isSearchExpanded = false;
+        activeSourceActionSourceKey = null;
+        sourceActionMenuPosition = null;
         isSyncingState = false;
         clickQueue = [];
         isProcessingQueue = false;
         freshRowCache = null;
         pendingStorageUpgrade = false;
+        pendingInitialLoadedState = null;
+        pendingPanelReattachState = null;
+        attachedSourcePanel = null;
         managerStatusReason = 'manager_not_ready';
+    }
+
+    function syncManagerWithPanelLifecycle() {
+        if (!projectId) return;
+
+        const sourcePanel = findSourcePanel();
+        const hasManagerInstance = Boolean(extensionHost || shadowRoot || scrollObserver);
+
+        if (!sourcePanel) {
+            if (hasManagerInstance) {
+                detachManagerForPanelCollapse();
+            }
+            bindPanelLifecycleHooks(null);
+            managerStatusReason = 'source_panel_missing';
+            return;
+        }
+
+        bindPanelLifecycleHooks(sourcePanel);
+
+        if (isSourcePanelCollapsed(sourcePanel)) {
+            if (hasManagerInstance) {
+                detachManagerForPanelCollapse();
+            }
+            managerStatusReason = 'manager_not_ready';
+            return;
+        }
+
+        if (isManagerAttachedToPanel(sourcePanel)) {
+            applySourcePanelSurfaceColor(extensionHost, sourcePanel);
+            managerStatusReason = 'ready';
+            return;
+        }
+
+        if (hasManagerInstance) {
+            detachManagerForPanelCollapse();
+        }
+
+        init(sourcePanel);
     }
 
     function recoverManagerForRoute(targetProjectId, attempt = 0, recoveryToken = activeRouteRecoveryToken) {
@@ -2087,7 +3664,9 @@
         }).then((panel) => {
             if (recoveryToken !== activeRouteRecoveryToken) return;
 
-            if (panel && getProjectId() === targetProjectId) {
+            bindPanelLifecycleHooks(panel);
+
+            if (panel && isSourcePanelRenderable(panel) && getProjectId() === targetProjectId) {
                 init(panel);
                 return;
             }
@@ -2110,6 +3689,7 @@
         if (!newProjectId) {
             if (projectId) {
                 console.log(`NotebookLM Source Management: Route changed from notebook ${projectId} to a non-notebook page. Tearing down.`);
+                flushPendingStateSave();
                 activeRouteRecoveryToken += 1;
                 projectId = null;
                 teardown();
@@ -2120,6 +3700,7 @@
 
         if (newProjectId !== projectId) {
             console.log(`NotebookLM Source Management: Route changed from ${projectId} to ${newProjectId}. Reinitializing manager.`);
+            flushPendingStateSave();
             activeRouteRecoveryToken += 1;
             projectId = newProjectId;
             managerStatusReason = 'manager_not_ready';
@@ -2129,8 +3710,16 @@
     }
 
     function init(sourcePanel) {
+        if (!isSourcePanelRenderable(sourcePanel)) {
+            managerStatusReason = 'manager_not_ready';
+            return;
+        }
+
+        bindPanelLifecycleHooks(sourcePanel);
+
         const extensionRoot = document.createElement('div');
         extensionRoot.id = 'sources-plus-root';
+        applySourcePanelSurfaceColor(extensionRoot, sourcePanel);
         extensionHost = extensionRoot;
         shadowRoot = extensionRoot.attachShadow({ mode: 'open' });
         managerStatusReason = 'manager_not_ready';
@@ -2140,6 +3729,12 @@
 
         const containerHtml = createManagerShell(el, chrome);
         shadowRoot.appendChild(containerHtml);
+
+        if (window && typeof window.addEventListener === 'function') {
+            window.addEventListener('pagehide', handlePageLifecyclePersistence);
+            window.addEventListener('resize', handleSourceActionMenuViewportChange);
+        }
+        document.addEventListener('visibilitychange', handlePageLifecyclePersistence);
 
         // Handle Resizing
         const container = shadowRoot.querySelector('.sp-container');
@@ -2168,16 +3763,18 @@
         }
 
         shadowRoot.getElementById('sp-new-group-btn').addEventListener('click', () => handleAddNewGroup());
+        shadowRoot.getElementById('sp-manage-tags-btn').addEventListener('click', () => renderTagModal());
 
         shadowRoot.getElementById('sp-batch-action-btn').addEventListener('click', () => {
             if (isDeletingSources) return;
             state.isBatchMode = !state.isBatchMode;
             pendingBatchKeys.clear();
+            closeSourceActionMenu();
             render();
         });
 
         const searchInput = shadowRoot.getElementById('sp-search');
-        const handleSearchInput = debounce((e) => { state.filterQuery = e.target.value; render(); }, 300);
+        const handleSearchInput = debounce(() => { render(); }, 300);
 
         // Immediate search trigger
         const triggerImmediateSearch = () => {
@@ -2185,16 +3782,28 @@
             render();
         };
 
-        searchInput.addEventListener('input', handleSearchInput);
+        searchInput.addEventListener('input', (event) => {
+            state.filterQuery = event.target.value;
+            handleSearchInput();
+        });
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 triggerImmediateSearch();
             }
         });
-        shadowRoot.getElementById('sp-search-btn').addEventListener('click', triggerImmediateSearch);
+        shadowRoot.getElementById('sp-search-btn').addEventListener('click', (event) => {
+            event.preventDefault();
+            handleSearchButtonClick(triggerImmediateSearch);
+        });
+        shadowRoot.addEventListener('click', handleSearchOutsideClick);
+        shadowRoot.addEventListener('scroll', handleSourceActionMenuViewportChange, true);
+        document.addEventListener('click', handleDocumentOutsideClick, true);
+        syncSearchUi();
 
         const listContainer = shadowRoot.querySelector('#sources-list');
+        const viewStateContainer = shadowRoot.getElementById('sp-view-state');
+        viewStateContainer.addEventListener('click', handleInteraction);
         listContainer.addEventListener('click', handleInteraction);
         listContainer.addEventListener('change', handleInteraction);
         listContainer.addEventListener('dragstart', handleDragStart);
@@ -2206,6 +3815,7 @@
         const panelHeader = sourcePanel.querySelector('.panel-header') || sourcePanel.firstElementChild || sourcePanel;
         if (panelHeader) {
             panelHeader.insertAdjacentElement('afterend', extensionRoot);
+            attachedSourcePanel = sourcePanel;
             managerStatusReason = 'ready';
             document.addEventListener('change', handleOriginalCheckboxChange, true);
 
@@ -2231,15 +3841,21 @@
             // 2. Removed CPU-intensive Heartbeat Polling
             // Relying purely on MutationObserver is much more efficient.
 
+            const reattachState = pendingPanelReattachState
+                ? normalizeLoadedState(cloneSerializableData(pendingPanelReattachState))
+                : null;
+            pendingPanelReattachState = null;
+
+            if (reattachState) {
+                applyLoadedStateToManager(reattachState);
+                return;
+            }
+
             loadState((loadedState) => {
-                const shouldUpgradeStorage = scanAndSyncSources(loadedState, true);
-                render();
-                if (shouldUpgradeStorage) {
-                    pendingStorageUpgrade = false;
-                    saveState();
-                }
+                applyLoadedStateToManager(loadedState);
             });
         } else {
+            attachedSourcePanel = null;
             managerStatusReason = 'panel_header_missing';
             showCrashBanner("NotebookLM Source Management: Initialization failed. Could not locate panel header.");
         }
@@ -2257,6 +3873,11 @@
                 showCrashBanner("NotebookLM Source Management: Could not find NotebookLM panel. Google may have updated the page structure.");
                 return;
             }
+            bindPanelLifecycleHooks(panel);
+            if (!isSourcePanelRenderable(panel)) {
+                managerStatusReason = 'manager_not_ready';
+                return;
+            }
             init(panel);
         }).catch(err => {
             console.error("NotebookLM Source Management init error:", err);
@@ -2271,46 +3892,106 @@
         if (location.href !== currentUrl) {
             currentUrl = location.href;
             handleRouteChanged();
+            return;
         }
+        schedulePanelLifecycleSync();
     });
-    routeObserver.observe(document.body, { subtree: true, childList: true });
+    routeObserver.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden', 'aria-hidden']
+    });
 
     // Expose internals for testing
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             areAllAncestorsEnabled,
             buildPersistableState,
+            createTag,
             createSourceDescriptor,
+            deleteTag,
             findFreshCheckbox,
+            getSourceTagIds,
+            groupHasRenderableDescendant,
+            hasActiveRenderFilters,
+            isSourceEffectivelyEnabled,
             normalizeLoadedState,
             processClickQueue,
             removeGroupFromTree,
             scanAndSyncSources,
+            setSourceTagIds,
+            shouldRenderGroup,
+            sourceMatchesCurrentFilters,
             syncSourceToPage,
             parentMap,
             groupsById,
+            tagsById,
+            sourceTagsById,
             executeBatchDelete,
+            executeMoveToFolder,
             loadState,
             pendingBatchKeys,
             sourcesByKey,
             state,
             DEPS,
             saveState,
+            flushPendingStateSave,
             getManagerStatus,
             focusManagerPanel,
+            handleAddNewGroup,
             handleManagerMessage,
+            handlePageLifecyclePersistence,
             handleRouteChanged,
+            hasPersistedSourceRefs,
+            hasRenderableSourceRows,
+            findSourcePanel,
+            findSourcePanelContent,
+            bindPanelLifecycleHooks,
+            isManagerAttachedToPanel,
+            isSourcePanelCollapsed,
+            isSourcePanelRenderable,
             recoverManagerForRoute,
+            restoreInitialLoadedState,
+            resolveSourcePanelSurfaceColor,
+            schedulePanelLifecycleSync,
+            syncManagerWithPanelLifecycle,
+            toggleSourceActionMenu,
+            closeSourceActionMenu,
+            handleSourceActionSelection,
+            _applySourcePanelSurfaceColorForTest: applySourcePanelSurfaceColor,
             _getClickQueueLength: () => clickQueue.length,
             _getIsDeletingSources: () => isDeletingSources,
             _getIsSyncingState: () => isSyncingState,
             _setIsDeletingSources: (val) => { isDeletingSources = val; },
             _getFreshRowCache: () => freshRowCache,
             _getPendingStorageUpgrade: () => pendingStorageUpgrade,
+            _getPendingInitialLoadedState: () => pendingInitialLoadedState,
+            _getPendingPanelReattachStateForTest: () => pendingPanelReattachState,
+            _getAttachedSourcePanelForTest: () => attachedSourcePanel,
+            _getAttachedPanelHeaderForTest: () => attachedPanelHeader,
+            _getPanelResizeObserverForTest: () => panelResizeObserver,
+            _flushPendingInitialLoadedStateForTest: flushPendingInitialLoadedState,
             _setCustomHeight: (val) => { customHeight = val; },
             _setManagerStatusReason: (val) => { managerStatusReason = val; },
             _setProjectId: (val) => { projectId = val; },
+            _setAttachedSourcePanelForTest: (val) => { attachedSourcePanel = val; },
+            _getActiveIsolationGroupId: () => activeIsolationGroupId,
+            _setActiveIsolationGroupId: (val) => { activeIsolationGroupId = val; },
+            _getIsSearchExpanded: () => isSearchExpanded,
+            _setIsSearchExpanded: (val) => { isSearchExpanded = val; },
+            _getActiveSourceActionSourceKey: () => activeSourceActionSourceKey,
+            _setActiveSourceActionSourceKey: (val) => { activeSourceActionSourceKey = val; },
+            _setSourceActionInvokerForTest: (name, fn) => {
+                if (name && typeof fn === 'function' && Object.prototype.hasOwnProperty.call(sourceActionInvokers, name)) {
+                    sourceActionInvokers[name] = fn;
+                }
+            },
+            _handleInteractionForTest: handleInteraction,
             _setShadowRootForTest: (val) => { shadowRoot = val; extensionHost = val && val.host ? val.host : null; },
+            _syncSearchUi: syncSearchUi,
+            _handleSearchButtonClick: handleSearchButtonClick,
+            _handleSearchOutsideClick: handleSearchOutsideClick,
             _resetState: () => {
                 state.groups = [];
                 state.ungrouped = [];
@@ -2320,6 +4001,8 @@
                 isDeletingSources = false;
                 groupsById.clear();
                 sourcesByKey.clear();
+                tagsById.clear();
+                sourceTagsById.clear();
                 parentMap.clear();
                 customHeight = null;
                 projectId = null;
@@ -2329,10 +4012,29 @@
                 clickQueue = [];
                 isProcessingQueue = false;
                 isSyncingState = false;
+                cancelPendingStateSave();
+                clearScheduledPanelLifecycleSync();
                 pendingStorageUpgrade = false;
+                pendingInitialLoadedState = null;
+                pendingPanelReattachState = null;
+                attachedSourcePanel = null;
+                attachedPanelHeader = null;
+                if (panelResizeObserver) {
+                    panelResizeObserver.disconnect();
+                    panelResizeObserver = null;
+                }
                 activeRouteRecoveryToken = 0;
                 routeRecoveryTimeout = null;
                 managerStatusReason = 'manager_not_ready';
+                state.tagOrder = [];
+                state.activeTagId = null;
+                activeIsolationGroupId = null;
+                isSearchExpanded = false;
+                activeSourceActionSourceKey = null;
+                sourceActionMenuPosition = null;
+                sourceActionInvokers.openTags = (sourceKey) => renderTagModal(sourceKey);
+                sourceActionInvokers.moveToFolder = (sourceKey) => renderMoveToFolderModal(sourceKey);
+                sourceActionInvokers.openNativeMenu = (sourceKey) => triggerNativeSourceMenu(sourceKey);
                 if (focusHighlightTimeout) {
                     clearTimeout(focusHighlightTimeout);
                     focusHighlightTimeout = null;

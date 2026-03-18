@@ -95,6 +95,9 @@
     "ui_new_group": {
         "message": "新建分组"
     },
+    "ui_manage_tags": {
+        "message": "管理标签"
+    },
     "ui_new_subgroup": {
         "message": "新建子分组"
     },
@@ -122,8 +125,77 @@
     "ui_isolate_group": {
         "message": "仅看此分组"
     },
+    "ui_isolation_active": {
+        "message": "当前仅看 \"$1\"",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_exit_isolate": {
+        "message": "退出仅看"
+    },
+    "ui_clear_tag_filter": {
+        "message": "清除标签筛选"
+    },
+    "ui_tag_filter_active": {
+        "message": "标签筛选：$1",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
     "ui_ungrouped": {
         "message": "未分组"
+    },
+    "ui_tags": {
+        "message": "标签"
+    },
+    "ui_edit_tags": {
+        "message": "添加或编辑标签"
+    },
+    "ui_create_tag": {
+        "message": "创建标签"
+    },
+    "ui_create_tag_placeholder": {
+        "message": "输入新标签名"
+    },
+    "ui_no_tags": {
+        "message": "还没有标签。"
+    },
+    "ui_no_tags_for_source": {
+        "message": "请先创建标签，再分配给这个来源。"
+    },
+    "ui_empty_group": {
+        "message": "当前文件夹为空。"
+    },
+    "ui_no_matching_sources": {
+        "message": "当前筛选条件下没有匹配的来源。"
+    },
+    "ui_save": {
+        "message": "保存"
+    },
+    "ui_tag_delete": {
+        "message": "删除标签"
+    },
+    "ui_tag_rename_prompt": {
+        "message": "重命名标签"
+    },
+    "ui_tag_delete_confirm": {
+        "message": "确定删除标签 \"$1\" 吗？它会从所有来源中移除。",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_tag_name_required": {
+        "message": "请输入标签名。"
+    },
+    "ui_tag_create_duplicate": {
+        "message": "该标签已存在。"
     },
     "ui_batch_action": {
         "message": "批量操作"
@@ -167,10 +239,27 @@
             }
         }
     },
+    "ui_source_actions": {
+        "message": "来源操作"
+    },
+    "ui_open_native_menu": {
+        "message": "打开 NotebookLM 菜单"
+    },
     "ui_move_to_folder": {
         "message": "加入文件夹"
     },
     "ui_empty_folders": {
         "message": "当前没有可用的文件夹。\n请先创建一个。"
+    },
+    "ui_isolated_toast": {
+        "message": "当前仅看 \"$1\"",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_isolation_cleared_toast": {
+        "message": "已退出仅看模式"
     }
 }

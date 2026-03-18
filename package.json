@@ -1,20 +1,28 @@
 {
   "name": "notebooklm-source-management",
   "version": "2.6.1",
-  "description": "![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Version](https://img.shields.io/badge/version-2.6.1-green.svg)",
-  "main": "background.js",
+  "description": "Chrome extension that adds folder grouping, drag-and-drop, and batch controls to NotebookLM's source panel.\nChrome 扩展：为 NotebookLM 来源面板补充文件夹、拖拽与批量操作。",
+  "main": "src/background/index.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "verify": "npm test -- --runInBand",
+    "package": "node scripts/package.js"
   },
   "devDependencies": {
+    "archiver": "^5.3.0",
     "jest": "^29.7.0"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/HMYanan/notebooklm-source-management.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "NotebookLM",
+    "Chrome extension",
+    "source management",
+    "productivity"
+  ],
+  "author": "HMYanan",
   "license": "MIT",
   "type": "commonjs",
   "bugs": {

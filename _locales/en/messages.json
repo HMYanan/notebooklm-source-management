@@ -95,6 +95,9 @@
     "ui_new_group": {
         "message": "New Group"
     },
+    "ui_manage_tags": {
+        "message": "Manage Tags"
+    },
     "ui_new_subgroup": {
         "message": "New Subgroup"
     },
@@ -122,8 +125,77 @@
     "ui_isolate_group": {
         "message": "Isolate this group"
     },
+    "ui_isolation_active": {
+        "message": "Isolating \"$1\"",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_exit_isolate": {
+        "message": "Exit isolate"
+    },
+    "ui_clear_tag_filter": {
+        "message": "Clear tag filter"
+    },
+    "ui_tag_filter_active": {
+        "message": "Tag filter: $1",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
     "ui_ungrouped": {
         "message": "Ungrouped"
+    },
+    "ui_tags": {
+        "message": "Tags"
+    },
+    "ui_edit_tags": {
+        "message": "Add/Edit Tags"
+    },
+    "ui_create_tag": {
+        "message": "Create Tag"
+    },
+    "ui_create_tag_placeholder": {
+        "message": "New tag name"
+    },
+    "ui_no_tags": {
+        "message": "No tags yet."
+    },
+    "ui_no_tags_for_source": {
+        "message": "Create tags to assign them to this source."
+    },
+    "ui_empty_group": {
+        "message": "This folder is empty."
+    },
+    "ui_no_matching_sources": {
+        "message": "No sources match the current filters."
+    },
+    "ui_save": {
+        "message": "Save"
+    },
+    "ui_tag_delete": {
+        "message": "Delete Tag"
+    },
+    "ui_tag_rename_prompt": {
+        "message": "Rename tag"
+    },
+    "ui_tag_delete_confirm": {
+        "message": "Delete tag \"$1\"? It will be removed from all sources.",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_tag_name_required": {
+        "message": "Enter a tag name."
+    },
+    "ui_tag_create_duplicate": {
+        "message": "That tag already exists."
     },
     "ui_batch_action": {
         "message": "Batch Action"
@@ -167,10 +239,27 @@
             }
         }
     },
+    "ui_source_actions": {
+        "message": "Source actions"
+    },
+    "ui_open_native_menu": {
+        "message": "Open NotebookLM menu"
+    },
     "ui_move_to_folder": {
         "message": "Move to Folder"
     },
     "ui_empty_folders": {
         "message": "No folders available yet.\nCreate one first."
+    },
+    "ui_isolated_toast": {
+        "message": "Isolating \"$1\"",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
+    "ui_isolation_cleared_toast": {
+        "message": "Exited isolate view"
     }
 }
