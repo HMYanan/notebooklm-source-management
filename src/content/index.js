@@ -81,56 +81,6 @@
 
     // --- Helper Functions ---
 
-
-    function debounce(func, wait) {
-        let timeout = null;
-        let lastArgs = null;
-        let lastThis = null;
-
-        const invoke = () => {
-            timeout = null;
-            const args = lastArgs;
-            const context = lastThis;
-            lastArgs = null;
-            lastThis = null;
-            return func.apply(context, args || []);
-        };
-
-        function executedFunction(...args) {
-            lastArgs = args;
-            lastThis = this;
-            if (timeout) {
-                clearTimeout(timeout);
-            }
-            timeout = setTimeout(invoke, wait);
-        }
-
-        executedFunction.cancel = () => {
-            if (timeout) {
-                clearTimeout(timeout);
-            }
-            timeout = null;
-            lastArgs = null;
-            lastThis = null;
-        };
-
-        executedFunction.flush = () => {
-            if (!timeout) return false;
-            clearTimeout(timeout);
-            invoke();
-            return true;
-        };
-
-        executedFunction.isPending = () => timeout !== null;
-
-        return executedFunction;
-    }
-
-    function getMessage(key, substitutions) {
-        if (!chrome?.i18n?.getMessage) return key;
-        return chrome.i18n.getMessage(key, substitutions) || key;
-    }
-
     function findElement(selectors, parent = document) {
         for (const sel of selectors) {
             const el = parent.querySelector(sel);
@@ -1165,12 +1115,12 @@
                    'color: white; padding: 12px; text-align: center; z-index: 999999; ' +
                    'font-family: "Google Sans", sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'
         }, [
-            el('strong', {}, ['Error: ']),
+            el('strong', {}, [getMessage('ui_crash_banner_prefix') + ' ']),
             message + ' ',
             el('button', {
                 id: 'sp-dismiss-error',
                 style: 'background: rgba(255,255,255,0.2); border: 1px solid white; color: white; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer;'
-            }, ['Dismiss'])
+            }, [getMessage('ui_dismiss')])
         ]);
 
         document.body.prepend(banner);
@@ -1341,7 +1291,7 @@
         const total = keysToDelete.length;
         let deletedCount = 0;
 
-        showToast(`Deleting ${total} source(s)...`);
+        showToast(getMessage('ui_deleting_count', [total.toString()]));
 
         for (const key of keysToDelete) {
             const source = sourcesByKey.get(key);
@@ -1376,9 +1326,22 @@
                 const menuItems = document.querySelectorAll('.cdk-overlay-container [role="menuitem"]');
                 let deleteMenuItem = null;
                 for (const item of menuItems) {
+                    const iconText = (item.querySelector('mat-icon')?.textContent || '').trim().toLowerCase();
+                    if (iconText === 'delete' || iconText === 'delete_forever' || iconText === 'remove_circle') {
+                        deleteMenuItem = item;
+                        break;
+                    }
+                    const ariaLabel = (item.getAttribute('aria-label') || '').toLowerCase();
+                    const testId = item.getAttribute('data-testid') || '';
+                    if (ariaLabel.includes('delete') || ariaLabel.includes('remove') || testId.includes('delete') || testId.includes('remove')) {
+                        deleteMenuItem = item;
+                        break;
+                    }
                     const text = item.textContent.toLowerCase();
-                    // Checking for delete icon or common delete text
-                    if (text.includes('delete') || text.includes('删除') || text.includes('移除') || item.querySelector('mat-icon')?.textContent.trim() === 'delete') {
+                    if (text.includes('delete') || text.includes('remove') ||
+                        text.includes('删除') || text.includes('移除') ||
+                        text.includes('supprimer') || text.includes('löschen') || text.includes('eliminar') ||
+                        text.includes('削除') || text.includes('삭제')) {
                         deleteMenuItem = item;
                         break;
                     }
@@ -1393,42 +1356,28 @@
                     const dialogs = document.querySelectorAll('mat-dialog-container, [role="dialog"], .cdk-dialog-container');
                     let confirmBtn = null;
                     for (const dialog of dialogs) {
-                        const dialogText = dialog.textContent.toLowerCase();
-                        // Only process dialogs that look like a deletion confirmation
-                        if (!dialogText.includes('delete') && !dialogText.includes('remove') && !dialogText.includes('删除') && !dialogText.includes('移除')) {
-                            continue;
-                        }
-
-                        // Find all buttons in the dialog
                         const buttons = dialog.querySelectorAll('button');
+                        const cancelPatterns = /cancel|取消|annuler|abbrechen|cancelar|キャンセル|취소/;
+
                         for (const btn of buttons) {
                             const btnText = btn.textContent.toLowerCase();
+                            if (cancelPatterns.test(btnText)) continue;
+
                             const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-                            // Stronger heuristic: Primary colored buttons or specific material structure
                             const isPrimaryButton = btn.className.includes('primary') || btn.className.includes('warn');
                             const hasCheckIcon = btn.querySelector('mat-icon')?.textContent.trim() === 'check';
-                            const isCancelBtn = btnText.includes('cancel') || btnText.includes('取消') || btnText.includes('no') || btnText.includes('否');
+                            const deleteConfirmPattern = /delete|remove|削除|삭제|删除|移除|supprimer|löschen|eliminar|yes|ok|confirm|确定|确认/;
 
-                            if (
-                                !isCancelBtn && (
-                                    isPrimaryButton || hasCheckIcon ||
-                                    btnText.includes('delete') || btnText.includes('删除') ||
-                                    btnText.includes('remove') || ariaLabel.includes('delete') ||
-                                    btnText.includes('yes') || btnText.includes('确定') ||
-                                    btnText.includes('确认') || btnText.includes('confirm')
-                                )
-                            ) {
+                            if (isPrimaryButton || hasCheckIcon || deleteConfirmPattern.test(btnText) || deleteConfirmPattern.test(ariaLabel)) {
                                 confirmBtn = btn;
                                 break;
                             }
                         }
 
-                        // Refined Fallback: If no explicit match, try to find a warn/primary button, but never blindly click the last button
                         if (!confirmBtn && buttons.length > 0) {
                             const warnBtn = Array.from(buttons).find(b => {
                                 const t = b.textContent.toLowerCase();
-                                const isCancel = t.includes('cancel') || t.includes('取消');
-                                return !isCancel && (b.className.includes('warn') || b.className.includes('primary'));
+                                return !cancelPatterns.test(t) && (b.className.includes('warn') || b.className.includes('primary'));
                             });
                             if (warnBtn) {
                                 confirmBtn = warnBtn;
@@ -2810,19 +2759,31 @@
         });
     }
 
-    function isDescendant(possibleChild, possibleParent, groupsById) {
-        if (!possibleChild || !possibleParent || possibleChild.id === possibleParent.id) return true;
-        const visit = (g) => {
-            if (!g) return false;
-            return g.children.some(c => {
-                if (c.type === 'group') {
-                    if (c.id === possibleChild.id) return true;
-                    return visit(groupsById.get(c.id));
-                }
-                return false;
+    function toggleGroupCollapse(group, groupContainer) {
+        if (!group || !groupContainer) return;
+        group.collapsed = !group.collapsed;
+
+        const caret = groupContainer.querySelector('.sp-caret');
+        const childrenContainer = groupContainer.querySelector('.group-children');
+
+        if (group.collapsed) {
+            caret.classList.add('collapsed');
+            childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
+            childrenContainer.offsetHeight;
+            childrenContainer.style.height = '0px';
+            childrenContainer.classList.add('collapsed');
+        } else {
+            caret.classList.remove('collapsed');
+            childrenContainer.classList.remove('collapsed');
+            childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
+
+            childrenContainer.addEventListener('transitionend', function handler() {
+                childrenContainer.style.height = 'auto';
+                childrenContainer.removeEventListener('transitionend', handler);
             });
-        };
-        return visit(possibleParent);
+        }
+
+        saveState();
     }
 
     function handleInteraction(event) {
@@ -2870,37 +2831,7 @@
 
         if (target.closest('.sp-add-subgroup-button')) { handleAddNewGroup(groupId); return; }
         if (target.closest('.sp-caret')) {
-            const g = groupsById.get(groupId);
-            if (g) {
-                g.collapsed = !g.collapsed;
-
-                // Animation Logic
-                const caret = groupContainer.querySelector('.sp-caret');
-                const childrenContainer = groupContainer.querySelector('.group-children');
-
-                if (g.collapsed) {
-                    caret.classList.add('collapsed');
-                    // Set explicit height before transitioning to 0
-                    childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
-                    // Force reflow
-                    childrenContainer.offsetHeight;
-                    childrenContainer.style.height = '0px';
-                    childrenContainer.classList.add('collapsed');
-                } else {
-                    caret.classList.remove('collapsed');
-                    childrenContainer.classList.remove('collapsed');
-                    // Set height to scrollHeight for transition
-                    childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
-
-                    // After transition, remove explicit height so it can grow/shrink dynamically
-                    childrenContainer.addEventListener('transitionend', function handler() {
-                        childrenContainer.style.height = 'auto';
-                        childrenContainer.removeEventListener('transitionend', handler);
-                    });
-                }
-
-                saveState();
-            }
+            toggleGroupCollapse(groupsById.get(groupId), groupContainer);
             return;
         }
         if (target.closest('.sp-isolate-button')) {
@@ -2944,32 +2875,7 @@
         }
 
         if (target.closest('.group-header') && !target.closest('.sp-caret, .sp-toggle-switch, .sp-add-subgroup-button, .sp-isolate-button, .sp-edit-button, .sp-delete-button, input')) {
-            const g = groupsById.get(groupId);
-            if (g) {
-                g.collapsed = !g.collapsed;
-
-                // Animation Logic
-                const caret = groupContainer.querySelector('.sp-caret');
-                const childrenContainer = groupContainer.querySelector('.group-children');
-
-                if (g.collapsed) {
-                    caret.classList.add('collapsed');
-                    childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
-                    childrenContainer.offsetHeight; // Force reflow
-                    childrenContainer.style.height = '0px';
-                    childrenContainer.classList.add('collapsed');
-                } else {
-                    caret.classList.remove('collapsed');
-                    childrenContainer.classList.remove('collapsed');
-                    childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
-
-                    childrenContainer.addEventListener('transitionend', function handler() {
-                        childrenContainer.style.height = 'auto';
-                        childrenContainer.removeEventListener('transitionend', handler);
-                    });
-                }
-                saveState();
-            }
+            toggleGroupCollapse(groupsById.get(groupId), groupContainer);
             return;
         }
 
@@ -3057,9 +2963,7 @@
                 groupsById.delete(groupId);
             } else {
                 const deleteContents = window.confirm(
-                    `The folder "${group.title}" is not empty.\n\n` +
-                    `[OK] Delete folder AND move its contents to "Ungrouped"\n` +
-                    `[Cancel] Keep group`
+                    getMessage('ui_delete_group_confirm_non_empty', [group.title, getMessage('ui_ungrouped')])
                 );
 
                 if (deleteContents) {
@@ -3521,10 +3425,7 @@
         managerStatusReason = 'manager_not_ready';
     }
 
-    function detachManagerForPanelCollapse() {
-        flushPendingStateSave();
-        pendingPanelReattachState = capturePendingPanelReattachState();
-
+    function cleanupManagerResources() {
         if (scrollObserver) {
             scrollObserver.disconnect();
             scrollObserver = null;
@@ -3557,66 +3458,20 @@
         resetManagerRuntimeState();
     }
 
+    function detachManagerForPanelCollapse() {
+        flushPendingStateSave();
+        pendingPanelReattachState = capturePendingPanelReattachState();
+        cleanupManagerResources();
+    }
+
     function teardown() {
         bindPanelLifecycleHooks(null);
-        if (scrollObserver) {
-            scrollObserver.disconnect();
-            scrollObserver = null;
-        }
-        if (healthCheckInterval) {
-            clearTimeout(healthCheckInterval); // Now using setTimeout for adaptive backoff
-            healthCheckInterval = null;
-        }
-        document.removeEventListener('change', handleOriginalCheckboxChange, true);
-        document.removeEventListener('click', handleDocumentOutsideClick, true);
-        if (shadowRoot && typeof shadowRoot.removeEventListener === 'function') {
-            shadowRoot.removeEventListener('scroll', handleSourceActionMenuViewportChange, true);
-        }
-        if (shadowRoot && shadowRoot.host) {
-            shadowRoot.host.remove();
-            shadowRoot = null;
-        }
-        extensionHost = null;
-        if (focusHighlightTimeout) {
-            clearTimeout(focusHighlightTimeout);
-            focusHighlightTimeout = null;
-        }
         if (routeRecoveryTimeout) {
             clearTimeout(routeRecoveryTimeout);
             routeRecoveryTimeout = null;
         }
-        if (window && typeof window.removeEventListener === 'function') {
-            window.removeEventListener('pagehide', handlePageLifecyclePersistence);
-            window.removeEventListener('resize', handleSourceActionMenuViewportChange);
-        }
-        document.removeEventListener('visibilitychange', handlePageLifecyclePersistence);
-        cancelPendingStateSave();
-        removeGlobalOverlayStyle();
-        groupsById.clear();
-        sourcesByKey.clear();
-        tagsById.clear();
-        sourceTagsById.clear();
-        parentMap.clear();
-        keyByElement = new WeakMap();
-        state.groups = [];
-        state.ungrouped = [];
-        state.filterQuery = '';
-        state.isBatchMode = false;
-        state.tagOrder = [];
-        state.activeTagId = null;
-        activeIsolationGroupId = null;
-        isSearchExpanded = false;
-        activeSourceActionSourceKey = null;
-        sourceActionMenuPosition = null;
-        isSyncingState = false;
-        clickQueue = [];
-        isProcessingQueue = false;
-        freshRowCache = null;
-        pendingStorageUpgrade = false;
-        pendingInitialLoadedState = null;
+        cleanupManagerResources();
         pendingPanelReattachState = null;
-        attachedSourcePanel = null;
-        managerStatusReason = 'manager_not_ready';
     }
 
     function syncManagerWithPanelLifecycle() {
@@ -3750,7 +3605,7 @@
         });
 
         function doDrag(e) {
-            const newHeight = startHeight + (e.clientY - startY);
+            const newHeight = Math.max(150, startHeight + (e.clientY - startY));
             container.style.height = `${newHeight}px`;
         }
 
@@ -3857,7 +3712,7 @@
         } else {
             attachedSourcePanel = null;
             managerStatusReason = 'panel_header_missing';
-            showCrashBanner("NotebookLM Source Management: Initialization failed. Could not locate panel header.");
+            showCrashBanner(getMessage('ui_crash_missing_header'));
         }
     }
 
@@ -3870,7 +3725,7 @@
         waitForElement(DEPS.panel).then(panel => {
             if (!panel) {
                 managerStatusReason = 'source_panel_missing';
-                showCrashBanner("NotebookLM Source Management: Could not find NotebookLM panel. Google may have updated the page structure.");
+                showCrashBanner(getMessage('ui_crash_missing_panel'));
                 return;
             }
             bindPanelLifecycleHooks(panel);
@@ -3882,23 +3737,39 @@
         }).catch(err => {
             console.error("NotebookLM Source Management init error:", err);
             managerStatusReason = 'manager_not_ready';
-            showCrashBanner("NotebookLM Source Management: Initialization error. Check console for details.");
+            showCrashBanner(getMessage('ui_crash_init_error'));
         });
     }
 
-    // Monitor for SPA route changes
+    // Monitor for SPA route changes via History API interception
     let currentUrl = location.href;
-    const routeObserver = new MutationObserver(() => {
+    const onRouteChange = () => {
         if (location.href !== currentUrl) {
             currentUrl = location.href;
             handleRouteChanged();
-            return;
         }
+    };
+
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+    history.pushState = function (...args) {
+        originalPushState.apply(this, args);
+        onRouteChange();
+    };
+    history.replaceState = function (...args) {
+        originalReplaceState.apply(this, args);
+        onRouteChange();
+    };
+    window.addEventListener('popstate', onRouteChange);
+
+    // Narrower observer for panel lifecycle only (no subtree attribute watching)
+    const panelLifecycleObserver = new MutationObserver(() => {
         schedulePanelLifecycleSync();
     });
-    routeObserver.observe(document.body, {
-        subtree: true,
+    const sourcePanelParent = findSourcePanel()?.parentElement || document.body;
+    panelLifecycleObserver.observe(sourcePanelParent, {
         childList: true,
+        subtree: false,
         attributes: true,
         attributeFilter: ['class', 'style', 'hidden', 'aria-hidden']
     });
@@ -3989,6 +3860,7 @@
             },
             _handleInteractionForTest: handleInteraction,
             _setShadowRootForTest: (val) => { shadowRoot = val; extensionHost = val && val.host ? val.host : null; },
+            _showCrashBannerForTest: showCrashBanner,
             _syncSearchUi: syncSearchUi,
             _handleSearchButtonClick: handleSearchButtonClick,
             _handleSearchOutsideClick: handleSearchOutsideClick,

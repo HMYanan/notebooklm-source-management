@@ -102,6 +102,10 @@ const setupGlobalMocks = () => {
         }
     };
     global.location = { href: 'http://localhost' };
+    global.history = {
+        pushState: jest.fn(),
+        replaceState: jest.fn()
+    };
     global.chrome = {
         i18n: { getMessage: (key) => key },
         runtime: {
@@ -115,6 +119,7 @@ const setupGlobalMocks = () => {
     global.el = utils.el;
     global.debounce = utils.debounce;
     global.isDescendant = utils.isDescendant;
+    global.getMessage = utils.getMessage;
 };
 
 const createMockSourceRow = ({
@@ -378,12 +383,14 @@ const teardownGlobalMocks = () => {
     delete global.MutationObserver;
     delete global.ResizeObserver;
     delete global.location;
+    delete global.history;
     delete global.setTimeout;
     delete global.clearTimeout;
     delete global.chrome;
     delete global.el;
     delete global.debounce;
     delete global.isDescendant;
+    delete global.getMessage;
     delete global.queueMicrotask;
     delete global.NSM_CONTENT_CONFIG;
     delete global.NSM_CONTENT_STYLE_TEXT;
@@ -494,7 +501,13 @@ describe('executeBatchDelete', () => {
 
         mod.sourcesByKey.set('key1', { key: 'key1', element: mockSourceElement, isDisabled: false });
 
-        const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn(), querySelector: jest.fn() };
+        const mockDeleteIcon = { textContent: 'delete' };
+        const mockDeleteMenuItem = {
+            textContent: 'Delete',
+            click: jest.fn(),
+            querySelector: jest.fn(sel => sel === 'mat-icon' ? mockDeleteIcon : null),
+            getAttribute: jest.fn(() => null)
+        };
         const mockConfirmBtn = { textContent: 'Delete', className: 'primary', click: jest.fn(), querySelector: jest.fn(), getAttribute: jest.fn() };
         const mockDialog = {
             textContent: 'Delete this?',
@@ -519,6 +532,50 @@ describe('executeBatchDelete', () => {
         expect(mod._getIsDeletingSources()).toBe(false);
         expect(mod.pendingBatchKeys.size).toBe(0);
         expect(mod.state.isBatchMode).toBe(false);
+    });
+
+    it('uses i18n for the batch delete progress toast', async () => {
+        mod.pendingBatchKeys.add('key1');
+        mod.state.isBatchMode = true;
+        global.chrome.i18n.getMessage = jest.fn((key, substitutions) => {
+            if (key === 'ui_deleting_count') return `localized deleting ${substitutions[0]}`;
+            if (key === 'ui_deleted_toast') return `localized deleted ${substitutions[0]}`;
+            return key;
+        });
+
+        const mockMoreBtn = { click: jest.fn() };
+        const mockSourceElement = {
+            querySelector: jest.fn(sel => {
+                if (mod.DEPS.moreBtn.includes(sel)) return mockMoreBtn;
+                return null;
+            })
+        };
+        const mockDeleteIcon = { textContent: 'delete' };
+        const mockDeleteMenuItem = {
+            textContent: 'Delete',
+            click: jest.fn(),
+            querySelector: jest.fn(sel => sel === 'mat-icon' ? mockDeleteIcon : null),
+            getAttribute: jest.fn(() => null)
+        };
+        const mockConfirmBtn = { textContent: 'Delete', className: 'primary', click: jest.fn(), querySelector: jest.fn(), getAttribute: jest.fn() };
+        const mockDialog = {
+            textContent: 'Delete this?',
+            querySelectorAll: jest.fn(sel => {
+                if (sel === 'button') return [mockConfirmBtn];
+                return [];
+            })
+        };
+
+        mod.sourcesByKey.set('key1', { key: 'key1', element: mockSourceElement, isDisabled: false });
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (sel.includes('[role="menuitem"]')) return [mockDeleteMenuItem];
+            if (sel.includes('dialog')) return [mockDialog];
+            return [];
+        });
+
+        await mod.executeBatchDelete();
+
+        expect(global.chrome.i18n.getMessage).toHaveBeenCalledWith('ui_deleting_count', ['1']);
     });
 
     it('falls back to findFreshCheckbox if more button is not found initially', async () => {
@@ -594,7 +651,13 @@ describe('executeBatchDelete', () => {
         const mockMoreBtn = { click: jest.fn() };
         mod.sourcesByKey.set('key4', { key: 'key4', element: { querySelector: () => mockMoreBtn }, isDisabled: false });
 
-        const mockDeleteMenuItem = { textContent: 'Delete', click: jest.fn() };
+        const mockDeleteIcon = { textContent: 'delete' };
+        const mockDeleteMenuItem = {
+            textContent: 'Delete',
+            click: jest.fn(),
+            querySelector: jest.fn(sel => sel === 'mat-icon' ? mockDeleteIcon : null),
+            getAttribute: jest.fn(() => null)
+        };
         const mockDialog = {
             textContent: 'Delete this?',
             querySelectorAll: jest.fn(() => [])
@@ -1191,6 +1254,64 @@ describe('source action menu', () => {
         expect(source.enabled).toBe(true);
         expect(openTags).toHaveBeenCalledWith('source-1');
         expect(sourceRow.querySelector).not.toHaveBeenCalled();
+    });
+
+    it('localizes the non-empty group delete confirmation message', () => {
+        global.chrome.i18n.getMessage = jest.fn((key, substitutions) => {
+            if (key === 'ui_ungrouped') return 'Ungrouped Localized';
+            if (key === 'ui_delete_group_confirm_non_empty') {
+                return `Folder ${substitutions[0]} -> ${substitutions[1]}`;
+            }
+            return key;
+        });
+        global.window.confirm = jest.fn(() => false);
+
+        const groupContainer = {
+            dataset: { groupId: 'group-1' }
+        };
+
+        mod.groupsById.set('group-1', {
+            id: 'group-1',
+            title: 'Archive',
+            children: [{ type: 'source', key: 'source-1' }]
+        });
+
+        mod._handleInteractionForTest({
+            target: {
+                classList: { contains: jest.fn(() => false) },
+                closest: jest.fn((selector) => {
+                    if (selector === '.group-container') return groupContainer;
+                    if (selector === '.sp-delete-button') return {};
+                    return null;
+                })
+            }
+        });
+
+        expect(global.window.confirm).toHaveBeenCalledWith('Folder Archive -> Ungrouped Localized');
+    });
+
+    it('localizes the crash banner chrome', () => {
+        const dismissButton = {
+            addEventListener: jest.fn()
+        };
+        global.chrome.i18n.getMessage = jest.fn((key) => {
+            if (key === 'ui_crash_banner_prefix') return 'Localized Error';
+            if (key === 'ui_dismiss') return 'Localized Dismiss';
+            return key;
+        });
+        global.el = createTreeEl;
+        global.document.getElementById = jest.fn((id) => {
+            if (id === 'sp-error-banner') return null;
+            if (id === 'sp-dismiss-error') return dismissButton;
+            return null;
+        });
+
+        mod._showCrashBannerForTest('Localized Body');
+
+        const banner = global.document.body.prepend.mock.calls[0][0];
+        expect(banner.children[0].children[0]).toBe('Localized Error ');
+        expect(banner.children[1]).toBe('Localized Body ');
+        expect(banner.children[2].children[0]).toBe('Localized Dismiss');
     });
 });
 

@@ -38,21 +38,53 @@ function el(tag, attributes = {}, children = []) {
 }
 
 /**
- * Debounce a function.
+ * Debounce a function with cancel, flush, and isPending support.
  * @param {Function} func - The function to debounce.
  * @param {number} wait - The wait time in milliseconds.
  * @returns {Function} The debounced function.
  */
 function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
+    let timeout = null;
+    let lastArgs = null;
+    let lastThis = null;
+
+    const invoke = () => {
+        timeout = null;
+        const args = lastArgs;
+        const context = lastThis;
+        lastArgs = null;
+        lastThis = null;
+        return func.apply(context, args || []);
     };
+
+    function executedFunction(...args) {
+        lastArgs = args;
+        lastThis = this;
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+        timeout = setTimeout(invoke, wait);
+    }
+
+    executedFunction.cancel = () => {
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+        timeout = null;
+        lastArgs = null;
+        lastThis = null;
+    };
+
+    executedFunction.flush = () => {
+        if (!timeout) return false;
+        clearTimeout(timeout);
+        invoke();
+        return true;
+    };
+
+    executedFunction.isPending = () => timeout !== null;
+
+    return executedFunction;
 }
 
 /**
@@ -77,6 +109,17 @@ function isDescendant(possibleChild, possibleParent, groupsById) {
     return visit(possibleParent);
 }
 
+/**
+ * Retrieve an i18n message from chrome.i18n, falling back to the key itself.
+ * @param {string} key - The message key.
+ * @param {string|string[]} [substitutions] - Optional substitution strings.
+ * @returns {string} The localized message or the key as fallback.
+ */
+function getMessage(key, substitutions) {
+    if (!chrome?.i18n?.getMessage) return key;
+    return chrome.i18n.getMessage(key, substitutions) || key;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { el, debounce, isDescendant };
+    module.exports = { el, debounce, isDescendant, getMessage };
 }

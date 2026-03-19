@@ -3,12 +3,29 @@
 
     const NOTEBOOKLM_HOME_URL = 'https://notebooklm.google.com/';
     const NOTEBOOKLM_NOTEBOOK_PREFIX = 'https://notebooklm.google.com/notebook/';
+    const ERROR_MESSAGE_KEYS = {
+        invalid_storage_key: 'popup_error_invalid_storage_key',
+        runtime_failure: 'popup_reason_generic'
+    };
 
-    function getMessage(key) {
-        if (typeof chrome !== 'undefined' && chrome.i18n && typeof chrome.i18n.getMessage === 'function') {
-            return chrome.i18n.getMessage(key) || key;
+    function getUiLanguage() {
+        if (typeof chrome !== 'undefined' && chrome.i18n && typeof chrome.i18n.getUILanguage === 'function') {
+            return chrome.i18n.getUILanguage() || 'en';
         }
-        return key;
+        return 'en';
+    }
+
+    function applyDocumentLocalization(doc = document) {
+        if (!doc) return;
+
+        if (typeof doc.title === 'string') {
+            doc.title = getMessage('extName');
+        }
+
+        const root = doc.documentElement || null;
+        if (root) {
+            root.lang = getUiLanguage();
+        }
     }
 
     function getPageContext(url) {
@@ -224,6 +241,18 @@
         return elements;
     }
 
+    function resolveErrorMessage(result) {
+        if (result && typeof result.errorMessageKey === 'string') {
+            return getMessage(result.errorMessageKey);
+        }
+
+        if (result && typeof result.errorCode === 'string') {
+            return getMessage(ERROR_MESSAGE_KEYS[result.errorCode] || 'popup_reason_generic');
+        }
+
+        return getMessage('popup_reason_generic');
+    }
+
     async function performPrimaryAction(state, tab, launchContext) {
         if (state.action === 'focus-manager') {
             return sendMessageToTab(tab.id, { type: 'FOCUS_MANAGER' });
@@ -242,6 +271,7 @@
     }
 
     async function initializePopup(doc = document) {
+        applyDocumentLocalization(doc);
         const elements = getElements(doc);
         const activeTab = await queryActiveTab();
         const context = getPageContext(activeTab && activeTab.url);
@@ -259,7 +289,7 @@
                 const result = await performPrimaryAction(state, activeTab, launchContext);
                 if (result && result.success === false) {
                     elements.detail.hidden = false;
-                    elements.detail.textContent = result.error || getMessage('popup_reason_generic');
+                    elements.detail.textContent = resolveErrorMessage(result);
                     elements.primaryButton.disabled = false;
                     return;
                 }
@@ -269,7 +299,7 @@
                 }
             } catch (error) {
                 elements.detail.hidden = false;
-                elements.detail.textContent = error.message || getMessage('popup_reason_generic');
+                elements.detail.textContent = getMessage('popup_reason_generic');
                 elements.primaryButton.disabled = false;
             }
         };
@@ -283,7 +313,7 @@
                 const detail = document.getElementById('popup-detail');
                 if (detail) {
                     detail.hidden = false;
-                    detail.textContent = error.message || getMessage('popup_reason_generic');
+                    detail.textContent = getMessage('popup_reason_generic');
                 }
             });
         });
@@ -295,12 +325,15 @@
             deriveLaunchContext,
             getPageContext,
             getReasonMessageKey,
+            getUiLanguage,
             initializePopup,
             isNotebookTab,
             inspectManagerStatus,
             performPrimaryAction,
             queryNotebookLmTabs,
-            renderPopup
+            renderPopup,
+            applyDocumentLocalization,
+            resolveErrorMessage
         };
     }
 })();

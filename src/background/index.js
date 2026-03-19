@@ -1,6 +1,10 @@
 const NOTEBOOKLM_HOME_URL = 'https://notebooklm.google.com/';
 const NOTEBOOKLM_URL_PATTERN = 'https://notebooklm.google.com/*';
 const NOTEBOOKLM_NOTEBOOK_PREFIX = 'https://notebooklm.google.com/notebook/';
+const ERROR_CODES = {
+    INVALID_STORAGE_KEY: 'invalid_storage_key',
+    RUNTIME_FAILURE: 'runtime_failure'
+};
 
 function isAuthorizedNotebookSender(sender) {
     return Boolean(
@@ -23,7 +27,7 @@ function isNotebookHomeTab(tab) {
 function focusTab(tab, action, sendResponse) {
     chrome.tabs.update(tab.id, { active: true }, (updatedTab) => {
         if (chrome.runtime.lastError) {
-            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
             return;
         }
 
@@ -51,7 +55,7 @@ function focusTab(tab, action, sendResponse) {
 function openNewNotebookLmHome(sendResponse) {
     chrome.tabs.create({ url: NOTEBOOKLM_HOME_URL }, (tab) => {
         if (chrome.runtime.lastError) {
-            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
             return;
         }
 
@@ -70,7 +74,7 @@ function openOrFocusNotebookLm(request, sendResponse) {
 
     chrome.tabs.query({ url: NOTEBOOKLM_URL_PATTERN }, (tabs) => {
         if (chrome.runtime.lastError) {
-            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
             return;
         }
 
@@ -118,14 +122,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'SAVE_STATE') {
         if (typeof request.key !== 'string' || !request.key.startsWith('sourcesPlusState_')) {
             console.warn('NotebookLM Source Management: Received SAVE_STATE with invalid key:', request.key);
-            sendResponse({ success: false, error: 'Invalid storage key' });
+            sendResponse({ success: false, errorCode: ERROR_CODES.INVALID_STORAGE_KEY });
             return;
         }
 
         chrome.storage.local.set({ [request.key]: request.data }, () => {
             if (chrome.runtime.lastError) {
                 console.error('NotebookLM Source Management background save error:', chrome.runtime.lastError);
-                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
             } else {
                 sendResponse({ success: true });
             }
@@ -135,7 +139,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (typeof request.key !== 'string' || !request.key.startsWith('sourcesPlusState_')) {
         console.warn('NotebookLM Source Management: Received LOAD_STATE with invalid key:', request.key);
-        sendResponse({ success: false, error: 'Invalid storage key' });
+        sendResponse({ success: false, errorCode: ERROR_CODES.INVALID_STORAGE_KEY });
         return;
     }
 
@@ -149,6 +153,7 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         NOTEBOOKLM_HOME_URL,
         NOTEBOOKLM_NOTEBOOK_PREFIX,
+        ERROR_CODES,
         isNotebookHomeTab,
         pickPreferredNotebookTab,
         isAuthorizedNotebookSender

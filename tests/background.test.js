@@ -119,7 +119,7 @@ describe('background.js message listener', () => {
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
             success: false,
-            error: 'Invalid storage key'
+            errorCode: 'invalid_storage_key'
         });
     });
 
@@ -142,7 +142,7 @@ describe('background.js message listener', () => {
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
             success: false,
-            error: 'Storage quota exceeded'
+            errorCode: 'runtime_failure'
         });
         expect(result).toBe(true);
     });
@@ -186,7 +186,7 @@ describe('background.js message listener', () => {
         );
         expect(mockSendResponse).toHaveBeenCalledWith({
             success: false,
-            error: 'Invalid storage key'
+            errorCode: 'invalid_storage_key'
         });
     });
 

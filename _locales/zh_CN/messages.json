@@ -89,6 +89,9 @@
     "popup_reason_generic": {
         "message": "当前页面暂时无法使用来源管理器。"
     },
+    "popup_error_invalid_storage_key": {
+        "message": "来源管理器无法访问当前页面的已保存状态。"
+    },
     "ui_filter_sources": {
         "message": "过滤来源"
     },
@@ -225,6 +228,14 @@
     "ui_deleting": {
         "message": "删除中..."
     },
+    "ui_deleting_count": {
+        "message": "正在删除 $1 个来源...",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
     "ui_source_import_failed": {
         "message": "来源导入失败"
     },
@@ -250,6 +261,32 @@
     },
     "ui_empty_folders": {
         "message": "当前没有可用的文件夹。\n请先创建一个。"
+    },
+    "ui_delete_group_confirm_non_empty": {
+        "message": "文件夹 \"$1\" 不为空。\n\n删除该文件夹，并将其中内容移动到“$2”吗？",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            },
+            "2": {
+                "content": "$2"
+            }
+        }
+    },
+    "ui_crash_banner_prefix": {
+        "message": "错误："
+    },
+    "ui_dismiss": {
+        "message": "关闭"
+    },
+    "ui_crash_missing_header": {
+        "message": "初始化失败，无法定位来源面板标题区域。"
+    },
+    "ui_crash_missing_panel": {
+        "message": "找不到 NotebookLM 的来源面板，Google 可能更新了页面结构。"
+    },
+    "ui_crash_init_error": {
+        "message": "初始化出错，请查看控制台了解详情。"
     },
     "ui_isolated_toast": {
         "message": "当前仅看 \"$1\"",

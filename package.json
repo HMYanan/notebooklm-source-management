@@ -1,6 +1,6 @@
 {
   "name": "notebooklm-source-management",
-  "version": "2.6.1",
+  "version": "2.6.3",
   "description": "Chrome extension that adds folder grouping, drag-and-drop, and batch controls to NotebookLM's source panel.\nChrome 扩展：为 NotebookLM 来源面板补充文件夹、拖拽与批量操作。",
   "main": "src/background/index.js",
   "scripts": {

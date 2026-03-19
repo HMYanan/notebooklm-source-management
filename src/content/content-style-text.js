@@ -142,19 +142,7 @@
                 background-color: var(--sp-accent);
             }
             
-            /* Sticky Header with Glassmorphism */
-            .sp-controls { 
-                display: flex; gap: 8px; flex-shrink: 0; align-items: center; 
-                position: sticky; top: 0; z-index: 5;
-                padding: 12px 8px 12px 0;
-                margin-bottom: 0; /* Handled by padding now */
-                background: var(--sp-panel-bg);
-                backdrop-filter: none;
-                -webkit-backdrop-filter: none;
-                border-bottom: 1px solid var(--sp-border-light);
-                mask-image: none;
-                -webkit-mask-image: none;
-            }
+            /* Sticky Header */
             .sp-controls::after {
                 content: none;
                 pointer-events: none;
@@ -225,16 +213,6 @@
                 padding-right: 4px;
                 padding-top: 4px;
                 background: var(--sp-panel-bg);
-            }
-            #sources-list::-webkit-scrollbar {
-                width: 6px;
-            }
-            #sources-list::-webkit-scrollbar-track {
-                background: transparent;
-            }
-            #sources-list::-webkit-scrollbar-thumb {
-                background-color: var(--sp-border-medium);
-                border-radius: 12px;
             }
             .sp-search-container {
                 display: flex;
@@ -856,46 +834,6 @@
                 opacity: 0;
                 pointer-events: none;
             }
-            .sp-overlay-backdrop {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.2);
-                z-index: 10000;
-                opacity: 0;
-                transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-                pointer-events: none;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                backdrop-filter: blur(4px);
-            }
-            .sp-overlay-backdrop.visible {
-                opacity: 1;
-                pointer-events: auto;
-            }
-            .sp-folder-modal {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                width: 320px;
-                max-height: 80vh;
-                transform: translate(-50%, -50%);
-                background: rgba(255, 255, 255, 0.85);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
-                border: 1px solid rgba(0, 0, 0, 0.05);
-                border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-                z-index: 10001;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                opacity: 0;
-                pointer-events: none;
-            }
             
             /* Adjust for dark mode specifically */
             @media (prefers-color-scheme: dark) {
@@ -1100,18 +1038,6 @@
                 border-radius: 12px;
             }
 
-            .drag-over-top {
-                border-top: 2px solid var(--sp-accent);
-                border-top-left-radius: 0;
-                border-top-right-radius: 0;
-            }
-
-            .drag-over-bottom {
-                border-bottom: 2px solid var(--sp-accent);
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
-            }
-
             .sp-toast {
                 visibility: hidden;
                 min-width: 200px;
@@ -1312,13 +1238,18 @@
 
             /* 1. Sticky Controls with Glassmorphism */
             .sp-controls {
+                display: flex;
+                flex-wrap: nowrap;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+                padding: 12px 8px 8px 0;
                 position: sticky;
                 top: 0;
                 z-index: 20;
                 background: var(--sp-panel-bg);
                 backdrop-filter: none;
                 -webkit-backdrop-filter: none;
-                padding-bottom: 8px;
                 margin-bottom: 0;
                 border-bottom: 1px solid var(--sp-border-light);
                 transition: border-color 0.3s ease;

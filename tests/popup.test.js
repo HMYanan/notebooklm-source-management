@@ -10,6 +10,8 @@ const createPopupDocument = () => {
 
     return {
         elements,
+        title: '',
+        documentElement: { lang: '' },
         getElementById: jest.fn((id) => elements[id]),
         addEventListener: jest.fn()
     };
@@ -29,8 +31,12 @@ describe('popup launcher', () => {
 
         global.document = popupDocument;
         global.window = { close: jest.fn() };
+        global.getMessage = (key) => key;
         global.chrome = {
-            i18n: { getMessage: (key) => key },
+            i18n: {
+                getMessage: (key) => key,
+                getUILanguage: () => 'zh-CN'
+            },
             runtime: {
                 lastError: null,
                 sendMessage: jest.fn((message, cb) => cb({ success: true, action: 'focused-existing-notebook' }))
@@ -56,6 +62,7 @@ describe('popup launcher', () => {
         delete global.document;
         delete global.window;
         delete global.chrome;
+        delete global.getMessage;
     });
 
     it('detects page context correctly', () => {
@@ -114,6 +121,8 @@ describe('popup launcher', () => {
         const result = await popup.initializePopup(popupDocument);
 
         expect(result.context).toBe('notebook');
+        expect(popupDocument.title).toBe('extName');
+        expect(popupDocument.documentElement.lang).toBe('zh-CN');
         expect(popupDocument.elements['popup-title'].textContent).toBe('popup_title_ready');
         expect(popupDocument.elements['popup-primary-btn'].textContent).toBe('popup_cta_open_manager');
 
@@ -189,5 +198,36 @@ describe('popup launcher', () => {
             },
             expect.any(Function)
         );
+    });
+
+    it('maps background error codes to localized popup messages', async () => {
+        activeTab = { id: 4, url: 'https://example.com' };
+        notebookLmTabs = [];
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => cb({
+            success: false,
+            errorCode: 'invalid_storage_key'
+        }));
+
+        await popup.initializePopup(popupDocument);
+        await popupDocument.elements['popup-primary-btn'].onclick();
+
+        expect(popupDocument.elements['popup-detail'].hidden).toBe(false);
+        expect(popupDocument.elements['popup-detail'].textContent).toBe('popup_error_invalid_storage_key');
+    });
+
+    it('falls back to a localized generic message for thrown runtime errors', async () => {
+        activeTab = { id: 4, url: 'https://example.com' };
+        notebookLmTabs = [];
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            global.chrome.runtime.lastError = { message: 'English runtime failure' };
+            cb();
+            global.chrome.runtime.lastError = null;
+        });
+
+        await popup.initializePopup(popupDocument);
+        await popupDocument.elements['popup-primary-btn'].onclick();
+
+        expect(popupDocument.elements['popup-detail'].hidden).toBe(false);
+        expect(popupDocument.elements['popup-detail'].textContent).toBe('popup_reason_generic');
     });
 });

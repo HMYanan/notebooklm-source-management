@@ -89,6 +89,9 @@
     "popup_reason_generic": {
         "message": "The source manager is not available on this page yet."
     },
+    "popup_error_invalid_storage_key": {
+        "message": "The source manager could not access its saved state on this page."
+    },
     "ui_filter_sources": {
         "message": "Filter sources"
     },
@@ -225,6 +228,14 @@
     "ui_deleting": {
         "message": "Deleting..."
     },
+    "ui_deleting_count": {
+        "message": "Deleting $1 source(s)...",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            }
+        }
+    },
     "ui_source_import_failed": {
         "message": "Source import failed"
     },
@@ -250,6 +261,32 @@
     },
     "ui_empty_folders": {
         "message": "No folders available yet.\nCreate one first."
+    },
+    "ui_delete_group_confirm_non_empty": {
+        "message": "The folder \"$1\" is not empty.\n\nDelete it and move its contents to \"$2\"?",
+        "placeholders": {
+            "1": {
+                "content": "$1"
+            },
+            "2": {
+                "content": "$2"
+            }
+        }
+    },
+    "ui_crash_banner_prefix": {
+        "message": "Error:"
+    },
+    "ui_dismiss": {
+        "message": "Dismiss"
+    },
+    "ui_crash_missing_header": {
+        "message": "Initialization failed. Could not locate the source panel header."
+    },
+    "ui_crash_missing_panel": {
+        "message": "Could not find NotebookLM's source panel. Google may have updated the page structure."
+    },
+    "ui_crash_init_error": {
+        "message": "Initialization error. Check the console for details."
     },
     "ui_isolated_toast": {
         "message": "Isolating \"$1\"",
