@@ -18,6 +18,7 @@ always_update_changelog.md
 # AI Agent folders
 .agents/
 .agent/
+.cursor/
 
 # PLAN
 PLAN.md
