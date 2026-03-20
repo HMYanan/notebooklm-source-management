@@ -165,6 +165,18 @@
     "ui_create_tag_placeholder": {
         "message": "New tag name"
     },
+    "ui_tag_color": {
+        "message": "Tag color"
+    },
+    "ui_tag_color_custom": {
+        "message": "Custom color"
+    },
+    "ui_tag_color_hex": {
+        "message": "Hex color (#RRGGBB)"
+    },
+    "ui_tag_color_none": {
+        "message": "Neutral"
+    },
     "ui_no_tags": {
         "message": "No tags yet."
     },
@@ -183,8 +195,14 @@
     "ui_tag_delete": {
         "message": "Delete Tag"
     },
+    "ui_tag_edit_title": {
+        "message": "Edit Tag"
+    },
     "ui_tag_rename_prompt": {
         "message": "Rename tag"
+    },
+    "ui_tag_update": {
+        "message": "Update Tag"
     },
     "ui_tag_delete_confirm": {
         "message": "Delete tag \"$1\"? It will be removed from all sources.",

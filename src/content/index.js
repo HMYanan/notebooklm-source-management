@@ -71,6 +71,18 @@
     let activeSourceActionSourceKey = null;
     let sourceActionMenuPosition = null;
 
+    const TAG_COLOR_PRESETS = [
+        '#007AFF',
+        '#34C759',
+        '#FF9500',
+        '#FF3B30',
+        '#AF52DE',
+        '#5AC8FA',
+        '#FF2D55',
+        '#8E8E93'
+    ];
+    const TAG_COLOR_HEX_PATTERN = /^#([0-9A-F]{6})$/;
+
     const SOURCE_PANEL_CONTENT_SELECTORS = Array.from(new Set([
         '[data-testid="scroll-area"]',
         '.scroll-area-desktop',
@@ -717,6 +729,88 @@
             .slice(0, 48);
     }
 
+    function normalizeTagColor(value) {
+        const rawValue = String(value || '').trim().toUpperCase();
+        if (!rawValue) return null;
+
+        const normalizedValue = rawValue.startsWith('#') ? rawValue : `#${rawValue}`;
+        const match = normalizedValue.match(TAG_COLOR_HEX_PATTERN);
+        return match ? `#${match[1]}` : null;
+    }
+
+    function getDefaultTagColor() {
+        return TAG_COLOR_PRESETS[0];
+    }
+
+    function normalizeTagColorInputValue(value) {
+        const compactValue = String(value || '')
+            .trim()
+            .toUpperCase()
+            .replace(/[^#0-9A-F]/g, '');
+        if (!compactValue) return '';
+
+        const withoutPrefix = compactValue.startsWith('#') ? compactValue.slice(1) : compactValue;
+        return `#${withoutPrefix.slice(0, 6)}`;
+    }
+
+    function getSerializedTag(tag) {
+        if (!tag) return null;
+
+        const serializedTag = {
+            id: tag.id,
+            label: normalizeTagLabel(tag.label)
+        };
+        const normalizedColor = normalizeTagColor(tag.color);
+        if (normalizedColor) {
+            serializedTag.color = normalizedColor;
+        }
+        return serializedTag;
+    }
+
+    function getTagColorRgb(color) {
+        const normalizedColor = normalizeTagColor(color);
+        if (!normalizedColor) return null;
+
+        return {
+            r: parseInt(normalizedColor.slice(1, 3), 16),
+            g: parseInt(normalizedColor.slice(3, 5), 16),
+            b: parseInt(normalizedColor.slice(5, 7), 16)
+        };
+    }
+
+    function getTagColorRgba(color, alpha) {
+        const rgb = getTagColorRgb(color);
+        if (!rgb) return '';
+        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+    }
+
+    function getTagStyleVars(tag, isActive = false) {
+        const normalizedColor = normalizeTagColor(tag && tag.color);
+        if (!normalizedColor) return '';
+
+        return [
+            `--sp-tag-text:${normalizedColor}`,
+            `--sp-tag-border:${getTagColorRgba(normalizedColor, isActive ? 0.38 : 0.22)}`,
+            `--sp-tag-bg:${getTagColorRgba(normalizedColor, isActive ? 0.18 : 0.1)}`,
+            `--sp-tag-hover-text:${normalizedColor}`,
+            `--sp-tag-hover-border:${getTagColorRgba(normalizedColor, isActive ? 0.42 : 0.32)}`,
+            `--sp-tag-hover-bg:${getTagColorRgba(normalizedColor, isActive ? 0.22 : 0.16)}`,
+            `--sp-tag-active-text:${normalizedColor}`,
+            `--sp-tag-active-border:${getTagColorRgba(normalizedColor, 0.42)}`,
+            `--sp-tag-active-bg:${getTagColorRgba(normalizedColor, 0.2)}`
+        ].join(';');
+    }
+
+    function getTagColorPreviewStyle(color) {
+        const normalizedColor = normalizeTagColor(color);
+        if (!normalizedColor) return '';
+
+        return [
+            `background:${normalizedColor}`,
+            `border-color:${getTagColorRgba(normalizedColor, 0.28)}`
+        ].join(';');
+    }
+
     function generateTagId() {
         return `tag_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
@@ -756,7 +850,8 @@
         return null;
     }
 
-    function createTag(label) {
+    function createTag(label, options = {}) {
+        const normalizedOptions = typeof options === 'string' ? { color: options } : options;
         const normalizedLabel = normalizeTagLabel(label);
         if (!normalizedLabel) {
             showToast(getMessage('ui_tag_name_required'));
@@ -770,8 +865,33 @@
         }
 
         const tagId = generateTagId();
-        tagsById.set(tagId, { id: tagId, label: normalizedLabel });
+        tagsById.set(tagId, {
+            id: tagId,
+            label: normalizedLabel,
+            color: normalizeTagColor(normalizedOptions && normalizedOptions.color)
+        });
         state.tagOrder.push(tagId);
+        return tagId;
+    }
+
+    function updateTag(tagId, updates = {}) {
+        const tag = tagsById.get(tagId);
+        if (!tag) return null;
+
+        const normalizedLabel = normalizeTagLabel(updates.label !== undefined ? updates.label : tag.label);
+        if (!normalizedLabel) {
+            showToast(getMessage('ui_tag_name_required'));
+            return null;
+        }
+
+        const duplicateTagId = findExistingTagIdByLabel(normalizedLabel);
+        if (duplicateTagId && duplicateTagId !== tagId) {
+            showToast(getMessage('ui_tag_create_duplicate'));
+            return duplicateTagId;
+        }
+
+        tag.label = normalizedLabel;
+        tag.color = normalizeTagColor(updates.color);
         return tagId;
     }
 
@@ -997,7 +1117,11 @@
             if (!label) return;
             seenTagIds.add(tagId);
             nextTagOrder.push(tagId);
-            nextTagsById.set(tagId, { id: tagId, label });
+            nextTagsById.set(tagId, {
+                id: tagId,
+                label,
+                color: normalizeTagColor(rawTag && rawTag.color)
+            });
         };
 
         preferredOrder.forEach(registerTag);
@@ -1722,7 +1846,11 @@
             ungrouped: state.ungrouped,
             sourceStateById,
             customHeight,
-            tagsById: Object.fromEntries(tagsById),
+            tagsById: Object.fromEntries(
+                Array.from(tagsById.entries())
+                    .map(([tagId, tag]) => [tagId, getSerializedTag(tag)])
+                    .filter(([, tag]) => Boolean(tag))
+            ),
             tagOrder: state.tagOrder.filter((tagId) => tagsById.has(tagId)),
             sourceTagsById: persistedSourceTagsById
         };
@@ -2072,12 +2200,251 @@
         if (modal) modal.remove();
     }
 
-    function renderTagModal(sourceKey = null, draftTagIds = null) {
+    function createTagColorControl(initialColor, options = {}) {
+        const {
+            allowUnset = false,
+            inputIdPrefix = 'sp-tag-color'
+        } = options;
+
+        let currentColor = normalizeTagColor(initialColor);
+        let fallbackColor = currentColor || getDefaultTagColor();
+        if (!currentColor && !allowUnset) {
+            currentColor = fallbackColor;
+        }
+
+        const presetButtons = [];
+        const presetChildren = [];
+
+        if (allowUnset) {
+            const neutralButton = el('button', {
+                type: 'button',
+                className: 'sp-tag-color-swatch sp-tag-color-swatch-none',
+                title: getMessage('ui_tag_color_none')
+            }, [el('span', { className: 'google-symbols' }, ['block'])]);
+            neutralButton.addEventListener('click', () => {
+                currentColor = null;
+                syncColorUi();
+            });
+            presetButtons.push({ button: neutralButton, color: null });
+            presetChildren.push(neutralButton);
+        }
+
+        TAG_COLOR_PRESETS.forEach((presetColor) => {
+            const presetButton = el('button', {
+                type: 'button',
+                className: 'sp-tag-color-swatch',
+                title: presetColor,
+                style: getTagColorPreviewStyle(presetColor)
+            });
+            presetButton.addEventListener('click', () => {
+                currentColor = presetColor;
+                fallbackColor = presetColor;
+                syncColorUi();
+            });
+            presetButtons.push({ button: presetButton, color: presetColor });
+            presetChildren.push(presetButton);
+        });
+
+        const presetContainer = el('div', {
+            className: 'sp-tag-color-presets',
+            role: 'list'
+        }, presetChildren);
+        const colorInput = el('input', {
+            id: `${inputIdPrefix}-native`,
+            className: 'sp-tag-color-native-input',
+            type: 'color',
+            value: currentColor || fallbackColor,
+            'aria-label': getMessage('ui_tag_color_custom')
+        });
+        const colorTriggerSwatch = el('span', {
+            className: 'sp-tag-color-trigger-swatch',
+            style: getTagColorPreviewStyle(currentColor || fallbackColor)
+        });
+        const colorTrigger = el('button', {
+            type: 'button',
+            className: 'sp-button sp-tag-color-trigger',
+            title: getMessage('ui_tag_color_custom')
+        }, [
+            colorTriggerSwatch,
+            el('span', {}, [getMessage('ui_tag_color_custom')])
+        ]);
+        const hexInput = el('input', {
+            id: `${inputIdPrefix}-hex`,
+            className: 'sp-tag-input sp-tag-color-hex',
+            type: 'text',
+            value: currentColor || '',
+            placeholder: getMessage('ui_tag_color_hex'),
+            'aria-label': getMessage('ui_tag_color_hex'),
+            maxlength: '7',
+            autocapitalize: 'characters',
+            spellcheck: 'false'
+        });
+
+        colorTrigger.addEventListener('click', () => {
+            if (typeof colorInput.click === 'function') {
+                colorInput.click();
+            }
+        });
+
+        colorInput.addEventListener('input', () => {
+            const nextColor = normalizeTagColor(colorInput.value);
+            if (!nextColor) return;
+            currentColor = nextColor;
+            fallbackColor = nextColor;
+            syncColorUi();
+        });
+
+        hexInput.addEventListener('input', () => {
+            const nextValue = normalizeTagColorInputValue(hexInput.value);
+            if (hexInput.value !== nextValue) {
+                hexInput.value = nextValue;
+            }
+
+            const nextColor = normalizeTagColor(nextValue);
+            if (nextColor) {
+                currentColor = nextColor;
+                fallbackColor = nextColor;
+                syncColorUi();
+                return;
+            }
+
+            if (!nextValue && allowUnset) {
+                currentColor = null;
+                syncColorUi();
+            }
+        });
+
+        hexInput.addEventListener('blur', () => {
+            syncColorUi();
+        });
+
+        const root = el('div', { className: 'sp-tag-color-group' }, [
+            el('div', { className: 'sp-tag-color-heading' }, [getMessage('ui_tag_color')]),
+            presetContainer,
+            el('div', { className: 'sp-tag-color-input-row' }, [
+                colorTrigger,
+                colorInput,
+                hexInput
+            ])
+        ]);
+
+        function syncColorUi() {
+            presetButtons.forEach(({ button, color }) => {
+                const isActive = color === currentColor || (!color && !currentColor);
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+
+            const displayColor = currentColor || fallbackColor || getDefaultTagColor();
+            colorInput.value = displayColor;
+            colorTriggerSwatch.setAttribute('style', getTagColorPreviewStyle(displayColor));
+            hexInput.value = currentColor || '';
+        }
+
+        syncColorUi();
+
+        return {
+            root,
+            hexInput,
+            colorInput,
+            getValue: () => currentColor
+        };
+    }
+
+    function createTagEditor(options = {}) {
+        const {
+            className = '',
+            initialLabel = '',
+            initialColor = null,
+            submitLabel,
+            submitButtonId = '',
+            submitButtonClassName = 'sp-button',
+            inputId = '',
+            allowUnsetColor = false,
+            onSubmit,
+            onCancel = null
+        } = options;
+
+        const labelInput = el('input', {
+            id: inputId || null,
+            className: 'sp-tag-input',
+            placeholder: getMessage('ui_create_tag_placeholder'),
+            value: initialLabel
+        });
+        const colorControl = createTagColorControl(initialColor, {
+            allowUnset: allowUnsetColor,
+            inputIdPrefix: inputId || 'sp-tag-color'
+        });
+        const actionChildren = [];
+
+        if (typeof onCancel === 'function') {
+            const cancelButton = el('button', {
+                type: 'button',
+                className: 'sp-modal-cancel'
+            }, [getMessage('ui_cancel')]);
+            cancelButton.addEventListener('click', onCancel);
+            actionChildren.push(cancelButton);
+        }
+
+        const submitButton = el('button', {
+            type: 'button',
+            id: submitButtonId || null,
+            className: submitButtonClassName
+        }, [submitLabel]);
+        actionChildren.push(submitButton);
+
+        const root = el('div', {
+            className: ['sp-tag-editor', className].filter(Boolean).join(' ')
+        }, [
+            labelInput,
+            colorControl.root,
+            el('div', { className: 'sp-tag-editor-actions' }, actionChildren)
+        ]);
+
+        const handleSubmit = () => {
+            if (typeof onSubmit === 'function') {
+                onSubmit({
+                    label: labelInput.value,
+                    color: colorControl.getValue()
+                });
+            }
+        };
+        const handleEditorKeydown = (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleSubmit();
+                return;
+            }
+
+            if (event.key === 'Escape' && typeof onCancel === 'function') {
+                event.preventDefault();
+                onCancel();
+            }
+        };
+
+        submitButton.addEventListener('click', handleSubmit);
+        labelInput.addEventListener('keydown', handleEditorKeydown);
+        colorControl.hexInput.addEventListener('keydown', handleEditorKeydown);
+
+        return {
+            root,
+            labelInput,
+            colorControl
+        };
+    }
+
+    function renderTagModal(sourceKey = null, modalState = null) {
         if (!shadowRoot) return;
 
+        const normalizedModalState = Array.isArray(modalState)
+            ? { draftTagIds: modalState }
+            : (modalState && typeof modalState === 'object' ? modalState : {});
         const source = sourceKey ? sourcesByKey.get(sourceKey) : null;
-        const selectedTagIds = new Set(sourceKey ? (draftTagIds || getSourceTagIds(sourceKey)) : []);
+        const selectedTagIds = new Set(sourceKey
+            ? (normalizedModalState.draftTagIds || getSourceTagIds(sourceKey))
+            : []);
         const usageCounts = getTagUsageCounts();
+        const editingTagId = !source ? normalizedModalState.editingTagId || null : null;
 
         closeTagModal();
 
@@ -2089,15 +2456,31 @@
         ]);
         const content = el('div', { className: 'sp-folder-modal-content sp-tag-modal-content' });
 
-        const createRow = el('div', { className: 'sp-tag-create-row' }, [
-            el('input', {
-                id: 'sp-tag-name-input',
-                className: 'sp-tag-input',
-                placeholder: getMessage('ui_create_tag_placeholder')
-            }),
-            el('button', { className: 'sp-button', id: 'sp-create-tag-btn' }, [getMessage('ui_create_tag')])
-        ]);
-        content.appendChild(createRow);
+        const createEditor = createTagEditor({
+            className: 'sp-tag-create-row',
+            submitLabel: getMessage('ui_create_tag'),
+            submitButtonId: 'sp-create-tag-btn',
+            inputId: 'sp-tag-name-input',
+            initialColor: getDefaultTagColor(),
+            onSubmit: ({ label, color }) => {
+                const newTagId = createTag(label, { color });
+                if (!newTagId) return;
+
+                createEditor.labelInput.value = '';
+                if (source) {
+                    selectedTagIds.add(newTagId);
+                    render();
+                    saveState({ immediate: true });
+                    renderTagModal(sourceKey, { draftTagIds: Array.from(selectedTagIds) });
+                    return;
+                }
+
+                saveState({ immediate: true });
+                render();
+                renderTagModal();
+            }
+        });
+        content.appendChild(createEditor.root);
 
         if (state.tagOrder.length === 0) {
             content.appendChild(el('div', { className: 'sp-folder-empty' }, [
@@ -2123,20 +2506,73 @@
                 const tag = tagsById.get(tagId);
                 if (!tag) return;
 
-                content.appendChild(el('div', { className: 'sp-tag-row' }, [
-                    el('span', { className: 'sp-tag-row-label' }, [tag.label]),
-                    el('span', { className: 'sp-tag-row-count' }, [String(usageCounts.get(tagId) || 0)]),
-                    el('button', {
-                        className: 'sp-tag-row-button sp-rename-tag-btn',
-                        dataset: { tagId },
-                        title: getMessage('ui_rename')
-                    }, [el('span', { className: 'google-symbols' }, ['edit'])]),
-                    el('button', {
-                        className: 'sp-tag-row-button sp-delete-tag-btn',
-                        dataset: { tagId },
-                        title: getMessage('ui_tag_delete')
-                    }, [el('span', { className: 'google-symbols' }, ['delete'])])
-                ]));
+                const editButton = el('button', {
+                    type: 'button',
+                    className: 'sp-tag-row-button sp-edit-tag-btn',
+                    dataset: { tagId },
+                    title: getMessage('ui_tag_edit_title')
+                }, [el('span', { className: 'google-symbols' }, ['edit'])]);
+                editButton.addEventListener('click', () => {
+                    renderTagModal(null, { editingTagId: tagId });
+                });
+
+                const deleteButton = el('button', {
+                    type: 'button',
+                    className: 'sp-tag-row-button sp-delete-tag-btn',
+                    dataset: { tagId },
+                    title: getMessage('ui_tag_delete')
+                }, [el('span', { className: 'google-symbols' }, ['delete'])]);
+                deleteButton.addEventListener('click', () => {
+                    const shouldDelete = typeof window.confirm !== 'function'
+                        ? true
+                        : window.confirm(getMessage('ui_tag_delete_confirm', [tag.label]));
+                    if (!shouldDelete) return;
+
+                    deleteTag(tagId);
+                    saveState({ immediate: true });
+                    render();
+                    renderTagModal();
+                });
+
+                const item = el('div', {
+                    className: 'sp-tag-manage-item' + (editingTagId === tagId ? ' is-editing' : '')
+                }, [
+                    el('div', { className: 'sp-tag-row' }, [
+                        el('span', {
+                            className: 'sp-tag-row-color' + (tag.color ? '' : ' is-neutral'),
+                            title: tag.color || getMessage('ui_tag_color_none'),
+                            style: getTagColorPreviewStyle(tag.color)
+                        }),
+                        el('span', { className: 'sp-tag-row-label' }, [tag.label]),
+                        el('span', { className: 'sp-tag-row-count' }, [String(usageCounts.get(tagId) || 0)]),
+                        editButton,
+                        deleteButton
+                    ])
+                ]);
+
+                if (editingTagId === tagId) {
+                    const editEditor = createTagEditor({
+                        className: 'sp-tag-edit-row',
+                        initialLabel: tag.label,
+                        initialColor: tag.color,
+                        submitLabel: getMessage('ui_tag_update'),
+                        submitButtonClassName: 'sp-button',
+                        inputId: `sp-edit-tag-${tagId}`,
+                        allowUnsetColor: true,
+                        onCancel: () => renderTagModal(),
+                        onSubmit: ({ label, color }) => {
+                            const result = updateTag(tagId, { label, color });
+                            if (!result || result !== tagId) return;
+
+                            saveState({ immediate: true });
+                            render();
+                            renderTagModal();
+                        }
+                    });
+                    item.appendChild(editEditor.root);
+                }
+
+                content.appendChild(item);
             });
         }
 
@@ -2161,34 +2597,6 @@
         shadowRoot.appendChild(backdrop);
         shadowRoot.appendChild(modal);
 
-        const createTagInput = modal.querySelector('#sp-tag-name-input');
-        const createTagButton = modal.querySelector('#sp-create-tag-btn');
-        const handleCreateTag = () => {
-            const newTagId = createTag(createTagInput.value);
-            if (!newTagId) return;
-
-            createTagInput.value = '';
-            if (source) {
-                selectedTagIds.add(newTagId);
-                render();
-                saveState({ immediate: true });
-                renderTagModal(sourceKey, Array.from(selectedTagIds));
-                return;
-            }
-
-            saveState({ immediate: true });
-            render();
-            renderTagModal();
-        };
-
-        createTagButton.addEventListener('click', handleCreateTag);
-        createTagInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                handleCreateTag();
-            }
-        });
-
         if (source) {
             modal.querySelector('#sp-save-tags-btn').addEventListener('click', () => {
                 const nextTagIds = Array.from(modal.querySelectorAll('.sp-tag-option-checkbox:checked'))
@@ -2199,50 +2607,18 @@
                 render();
                 closeTagModal();
             });
-        } else {
-            modal.querySelectorAll('.sp-rename-tag-btn').forEach((button) => {
-                button.addEventListener('click', () => {
-                    const tagId = button.dataset.tagId;
-                    const tag = tagsById.get(tagId);
-                    if (!tag || typeof window.prompt !== 'function') return;
-                    const nextLabel = normalizeTagLabel(window.prompt(getMessage('ui_tag_rename_prompt'), tag.label));
-                    if (!nextLabel || nextLabel === tag.label) return;
-
-                    const duplicateTagId = findExistingTagIdByLabel(nextLabel);
-                    if (duplicateTagId && duplicateTagId !== tagId) {
-                        showToast(getMessage('ui_tag_create_duplicate'));
-                        return;
-                    }
-
-                    tag.label = nextLabel;
-                    saveState({ immediate: true });
-                    render();
-                    renderTagModal();
-                });
-            });
-
-            modal.querySelectorAll('.sp-delete-tag-btn').forEach((button) => {
-                button.addEventListener('click', () => {
-                    const tagId = button.dataset.tagId;
-                    const tag = tagsById.get(tagId);
-                    if (!tag) return;
-
-                    const shouldDelete = typeof window.confirm !== 'function'
-                        ? true
-                        : window.confirm(getMessage('ui_tag_delete_confirm', [tag.label]));
-                    if (!shouldDelete) return;
-
-                    deleteTag(tagId);
-                    saveState({ immediate: true });
-                    render();
-                    renderTagModal();
-                });
-            });
         }
 
         requestAnimationFrame(() => {
             backdrop.classList.add('visible');
             modal.classList.add('visible');
+
+            const focusTarget = editingTagId
+                ? modal.querySelector(`#sp-edit-tag-${editingTagId}`)
+                : modal.querySelector('#sp-tag-name-input');
+            if (focusTarget && typeof focusTarget.focus === 'function') {
+                focusTarget.focus();
+            }
         });
     }
 
@@ -2516,7 +2892,8 @@
                         el('button', {
                             className: 'sp-tag-pill' + (state.activeTagId === tag.id ? ' is-active' : ''),
                             dataset: { tagId: tag.id },
-                            title: getMessage('ui_tag_filter_active', [tag.label])
+                            title: getMessage('ui_tag_filter_active', [tag.label]),
+                            style: getTagStyleVars(tag, state.activeTagId === tag.id)
                         }, [tag.label])
                     ))) : ''
                 ]),
@@ -3783,10 +4160,12 @@
             createSourceDescriptor,
             deleteTag,
             findFreshCheckbox,
+            getTagStyleVars,
             getSourceTagIds,
             groupHasRenderableDescendant,
             hasActiveRenderFilters,
             isSourceEffectivelyEnabled,
+            normalizeTagColor,
             normalizeLoadedState,
             processClickQueue,
             removeGroupFromTree,
@@ -3795,6 +4174,7 @@
             shouldRenderGroup,
             sourceMatchesCurrentFilters,
             syncSourceToPage,
+            updateTag,
             parentMap,
             groupsById,
             tagsById,
