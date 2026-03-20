@@ -53,6 +53,7 @@
                 --sp-drag-into-bg: rgba(0, 122, 255, 0.1);
                 --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.08);
                 --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.08);
+                --sp-shadow-hover-item: 0 10px 24px rgba(0,0,0,0.08);
                 --sp-panel-bg: #f6f7f9;
                 --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
                 --sp-icon-button-hover: rgba(0,0,0,0.08);
@@ -91,6 +92,7 @@
                     --sp-drag-into-bg: rgba(10, 132, 255, 0.15);
                     --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.4);
                     --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.2);
+                    --sp-shadow-hover-item: 0 12px 28px rgba(0,0,0,0.32);
                     --sp-panel-bg: #272c33;
                     --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.3), 0 0 1px rgba(0,0,0,0.2);
                     --sp-icon-button-hover: rgba(255,255,255,0.15);
@@ -210,9 +212,11 @@
                 overflow-x: hidden;
                 flex-grow: 1;
                 min-height: 0;
-                padding-right: 4px;
+                padding-right: 8px;
                 padding-top: 4px;
                 background: var(--sp-panel-bg);
+                position: relative;
+                isolation: isolate;
             }
             .sp-search-container {
                 display: flex;
@@ -439,6 +443,7 @@
                 z-index: 1;
                 transform-origin: left center;
                 cursor: pointer;
+                box-shadow: none;
             }
             .source-item {
                 padding-left: 12px;
@@ -450,11 +455,12 @@
             }
             .source-item:hover, .group-header:hover {
                 background-color: var(--sp-bg-hover);
-                z-index: 2;
-                transform: translateX(3px);
+                z-index: 4;
+                transform: scale(1.015);
+                box-shadow: var(--sp-shadow-hover-item);
             }
             .source-item:active, .group-header:active {
-                transform: translateX(3px) scale(0.98);
+                transform: scale(1.008);
             }
             .sp-caret {
                 background: none;
@@ -689,8 +695,9 @@
             .group-container {
                 display: flex;
                 flex-direction: column;
-                overflow: hidden;
+                overflow: visible;
                 margin-bottom: 2px;
+                position: relative;
             }
             .source-item.gated, .group-container.gated > .group-children {
                 opacity: 0.5;
@@ -745,9 +752,10 @@
                 border-left: 1px solid var(--sp-border-light); 
                 margin-left: 18px; 
                 margin-top: 2px; 
-                overflow: hidden; 
+                overflow: visible; 
                 transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
                 opacity: 1;
+                position: relative;
                 /* By default, let height be auto. JS will set explicit heights during animation. */
             }
             .group-children.collapsed {
@@ -755,6 +763,7 @@
                 opacity: 0;
                 margin-top: 0;
                 border: none;
+                overflow: hidden;
             }
             
             /* Folder Entry Animation */
@@ -1315,7 +1324,7 @@
             .source-item {
                 border-radius: 8px;
                 margin-bottom: 2px;
-                transition: background-color 0.2s ease, transform 0.2s ease;
+                transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
             }
             .source-item:hover {
                 background-color: var(--sp-bg-hover);

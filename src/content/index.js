@@ -2768,6 +2768,7 @@
 
         if (group.collapsed) {
             caret.classList.add('collapsed');
+            childrenContainer.style.overflow = 'hidden';
             childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
             childrenContainer.offsetHeight;
             childrenContainer.style.height = '0px';
@@ -2775,10 +2776,12 @@
         } else {
             caret.classList.remove('collapsed');
             childrenContainer.classList.remove('collapsed');
+            childrenContainer.style.overflow = 'hidden';
             childrenContainer.style.height = childrenContainer.scrollHeight + 'px';
 
             childrenContainer.addEventListener('transitionend', function handler() {
                 childrenContainer.style.height = 'auto';
+                childrenContainer.style.overflow = 'visible';
                 childrenContainer.removeEventListener('transitionend', handler);
             });
         }
