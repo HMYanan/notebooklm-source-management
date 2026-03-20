@@ -485,6 +485,9 @@
                 margin-right: 12px;
                 display: flex;
                 align-items: center;
+                justify-content: center;
+                width: 18px;
+                height: 18px;
                 color: var(--sp-text-secondary);
                 transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1);
                 cursor: pointer;
@@ -495,6 +498,14 @@
             }
             .icon-container .google-symbols {
                 font-size: 16px;
+            }
+            .source-icon-image {
+                width: 18px;
+                height: 18px;
+                display: block;
+                object-fit: cover;
+                border-radius: 4px;
+                overflow: hidden;
             }
             .sp-source-actions-anchor {
                 position: relative;

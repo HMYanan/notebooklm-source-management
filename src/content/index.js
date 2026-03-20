@@ -651,6 +651,88 @@
         return null;
     }
 
+    function extractCssUrl(value) {
+        if (typeof value !== 'string' || !value) return null;
+        const match = value.match(/url\((['"]?)(.*?)\1\)/i);
+        return match && match[2] ? match[2] : null;
+    }
+
+    function resolveSourceImageUrl(url) {
+        if (typeof url !== 'string') return null;
+
+        const trimmed = url.trim();
+        if (!trimmed || trimmed === 'none') return null;
+
+        const lowerValue = trimmed.toLowerCase();
+        if (
+            lowerValue.startsWith('data:') ||
+            lowerValue.startsWith('blob:') ||
+            lowerValue.startsWith('chrome-extension:')
+        ) {
+            return trimmed;
+        }
+
+        const baseUrl = window.location.href || window.location.origin || location.href;
+        try {
+            return new URL(trimmed, baseUrl).href;
+        } catch (error) {
+            return trimmed;
+        }
+    }
+
+    function isIgnoredSourceImageCandidate(candidate) {
+        if (!candidate) return true;
+
+        const ignoredInteractiveAncestorSelector = [
+            'button',
+            '[role="button"]',
+            '[role="menu"]',
+            '[role="menuitem"]',
+            '[role="checkbox"]',
+            'label',
+            'input',
+            'mat-checkbox'
+        ].join(', ');
+
+        if (typeof candidate.closest === 'function' && candidate.closest(ignoredInteractiveAncestorSelector)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function extractSourceIconImageUrl(sourceElement) {
+        if (!sourceElement) return null;
+
+        const selectors = Array.isArray(DEPS.iconImage) ? DEPS.iconImage : [];
+        const candidates = [];
+
+        for (const selector of selectors) {
+            const nodes = sourceElement.querySelectorAll ? Array.from(sourceElement.querySelectorAll(selector)).slice(0, 12) : [];
+            candidates.push(...nodes);
+        }
+
+        for (const candidate of candidates) {
+            if (!candidate || isIgnoredSourceImageCandidate(candidate)) continue;
+
+            const directUrl = resolveSourceImageUrl(
+                candidate.currentSrc ||
+                candidate.src ||
+                (typeof candidate.getAttribute === 'function' ? candidate.getAttribute('src') : '')
+            );
+            if (directUrl) return directUrl;
+
+            const inlineBackgroundUrl = resolveSourceImageUrl(extractCssUrl(candidate.style?.backgroundImage));
+            if (inlineBackgroundUrl) return inlineBackgroundUrl;
+
+            const computedBackground = window.getComputedStyle ? window.getComputedStyle(candidate) : null;
+            const computedBackgroundUrl = resolveSourceImageUrl(extractCssUrl(computedBackground?.backgroundImage));
+            if (computedBackgroundUrl) return computedBackgroundUrl;
+        }
+
+        return null;
+    }
+
     function buildLegacySourceKey(keyTitle, seenLegacyKeys) {
         const baseKey = generateSourceKey(keyTitle);
         const duplicateIndex = seenLegacyKeys.get(baseKey) || 0;
@@ -687,6 +769,7 @@
         }
 
         const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
+        const iconImageUrl = extractSourceIconImageUrl(sourceElement);
         const stableToken = extractSourceStableToken(sourceElement);
         const fingerprint = [
             normalizeSourceText(title),
@@ -716,6 +799,7 @@
             element: sourceElement,
             iconName,
             iconColorClass,
+            iconImageUrl,
             checkbox,
             isLoading,
             isDisabled
@@ -2825,6 +2909,60 @@
         patchChildren(layer, fragment);
     }
 
+    function createSourceGlyphIcon(iconName, iconColorClass) {
+        return el('mat-icon', { className: `${iconColorClass || 'icon-color'} mat-icon google-symbols` }, [iconName]);
+    }
+
+    function replaceSourceIconWithFallback(imageElement, source) {
+        if (!imageElement || imageElement.__spFallbackApplied) return;
+        imageElement.__spFallbackApplied = true;
+
+        const parent = imageElement.parentNode;
+        if (!parent) return;
+
+        const fallbackIcon = createSourceGlyphIcon(source.iconName, source.iconColorClass);
+        if (typeof parent.replaceChildren === 'function') {
+            parent.replaceChildren(fallbackIcon);
+            return;
+        }
+
+        if (Array.isArray(parent.childNodes)) {
+            parent.childNodes.length = 0;
+        }
+        if (Array.isArray(parent.children)) {
+            parent.children.length = 0;
+        }
+        if (typeof parent.appendChild === 'function') {
+            parent.appendChild(fallbackIcon);
+        }
+    }
+
+    function createSourceIconElement(source, isFailed = false) {
+        if (source?.isLoading) {
+            return el('div', { className: 'sp-spinner' });
+        }
+
+        if (isFailed) {
+            return createSourceGlyphIcon('error', source?.iconColorClass);
+        }
+
+        if (!source?.iconImageUrl) {
+            return createSourceGlyphIcon(source?.iconName || 'article', source?.iconColorClass);
+        }
+
+        const imageEl = el('img', {
+            className: 'source-icon-image',
+            src: source.iconImageUrl,
+            alt: '',
+            draggable: 'false',
+            referrerpolicy: 'no-referrer'
+        });
+        if (typeof imageEl.addEventListener === 'function') {
+            imageEl.addEventListener('error', () => replaceSourceIconWithFallback(imageEl, source));
+        }
+        return imageEl;
+    }
+
     function render() {
         if (!shadowRoot) return;
         const listContainer = shadowRoot.querySelector('#sources-list');
@@ -2866,9 +3004,7 @@
                 title: titleAttr
             }, [
                 el('div', { className: 'icon-container' }, [
-                    isLoading
-                        ? el('div', { className: 'sp-spinner' })
-                        : el('mat-icon', { className: `${source.iconColorClass || 'icon-color'} mat-icon google-symbols` }, [isFailed ? 'error' : source.iconName])
+                    createSourceIconElement(source, isFailed)
                 ]),
                 showSourceActionButton ? el('div', {
                     className: 'sp-source-actions-anchor' + (isSourceActionMenuOpen ? ' is-open' : '')
@@ -4161,7 +4297,9 @@
             buildPersistableState,
             createTag,
             createSourceDescriptor,
+            createSourceIconElement,
             deleteTag,
+            extractSourceIconImageUrl,
             findFreshCheckbox,
             getTagStyleVars,
             getSourceTagIds,
