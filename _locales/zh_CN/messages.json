@@ -165,6 +165,18 @@
     "ui_create_tag_placeholder": {
         "message": "输入新标签名"
     },
+    "ui_tag_color": {
+        "message": "标签颜色"
+    },
+    "ui_tag_color_custom": {
+        "message": "自定义颜色"
+    },
+    "ui_tag_color_hex": {
+        "message": "十六进制颜色 (#RRGGBB)"
+    },
+    "ui_tag_color_none": {
+        "message": "中性色"
+    },
     "ui_no_tags": {
         "message": "还没有标签。"
     },
@@ -183,8 +195,14 @@
     "ui_tag_delete": {
         "message": "删除标签"
     },
+    "ui_tag_edit_title": {
+        "message": "编辑标签"
+    },
     "ui_tag_rename_prompt": {
         "message": "重命名标签"
+    },
+    "ui_tag_update": {
+        "message": "更新标签"
     },
     "ui_tag_delete_confirm": {
         "message": "确定删除标签 \"$1\" 吗？它会从所有来源中移除。",
