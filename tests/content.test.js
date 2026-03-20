@@ -10,7 +10,8 @@ const setupGlobalMocks = () => {
         visibility: target?.__computedStyle?.visibility ?? target?.style?.visibility ?? 'visible',
         opacity: target?.__computedStyle?.opacity ?? target?.style?.opacity ?? '1',
         height: target?.__computedStyle?.height ?? target?.style?.height ?? '0px',
-        backgroundColor: target?.__computedStyle?.backgroundColor ?? target?.style?.backgroundColor ?? ''
+        backgroundColor: target?.__computedStyle?.backgroundColor ?? target?.style?.backgroundColor ?? '',
+        backgroundImage: target?.__computedStyle?.backgroundImage ?? target?.style?.backgroundImage ?? ''
     }));
 
     global.window = {
@@ -35,34 +36,77 @@ const setupGlobalMocks = () => {
         removeEventListener: jest.fn()
     };
 
-    const mockElement = () => ({
-        attachShadow: jest.fn(() => ({
+    const mockElement = (tag = 'div') => {
+        const listeners = new Map();
+        const element = {
+            tagName: String(tag).toUpperCase(),
+            childNodes: [],
+            children: [],
+            style: {},
+            attributes: {},
+            attachShadow: jest.fn(() => ({
+                querySelector: jest.fn(() => null),
+                querySelectorAll: jest.fn(() => []),
+                getElementById: jest.fn(() => ({ addEventListener: jest.fn() })),
+                appendChild: jest.fn(),
+            })),
+            appendChild: jest.fn(function appendChild(node) {
+                this.childNodes.push(node);
+                this.children.push(node);
+                if (node && typeof node === 'object') {
+                    node.parentNode = this;
+                }
+                return node;
+            }),
+            replaceChildren: jest.fn(function replaceChildren(...nodes) {
+                this.childNodes = [];
+                this.children = [];
+                nodes.forEach((node) => this.appendChild(node));
+            }),
+            removeChild: jest.fn(function removeChild(node) {
+                this.childNodes = this.childNodes.filter((child) => child !== node);
+                this.children = this.children.filter((child) => child !== node);
+                return node;
+            }),
+            cloneNode: jest.fn(function cloneNode() { return this; }),
+            setAttribute: jest.fn(function setAttribute(key, value) {
+                this.attributes[key] = value;
+                if (key === 'class') this.className = value;
+                this[key] = value;
+            }),
+            getAttribute: jest.fn(function getAttribute(key) {
+                return Object.prototype.hasOwnProperty.call(this.attributes, key) ? this.attributes[key] : null;
+            }),
+            addEventListener: jest.fn(function addEventListener(type, handler) {
+                const handlers = listeners.get(type) || [];
+                handlers.push(handler);
+                listeners.set(type, handlers);
+            }),
+            dispatchEvent: jest.fn(function dispatchEvent(event) {
+                const type = typeof event === 'string' ? event : event?.type;
+                const handlers = listeners.get(type) || [];
+                handlers.forEach((handler) => handler.call(this, event));
+                return true;
+            }),
+            remove: jest.fn(),
+            classList: { add: jest.fn(), remove: jest.fn() },
+            dataset: {},
+            matches: jest.fn(() => false),
+            closest: jest.fn(() => null),
             querySelector: jest.fn(() => null),
             querySelectorAll: jest.fn(() => []),
-            getElementById: jest.fn(() => ({ addEventListener: jest.fn() })),
-            appendChild: jest.fn(),
-        })),
-        appendChild: jest.fn(),
-        cloneNode: jest.fn(function cloneNode() { return this; }),
-        setAttribute: jest.fn(),
-        getAttribute: jest.fn(() => null),
-        addEventListener: jest.fn(),
-        remove: jest.fn(),
-        classList: { add: jest.fn(), remove: jest.fn() },
-        dataset: {},
-        matches: jest.fn(() => false),
-        closest: jest.fn(() => null),
-        querySelector: jest.fn(() => null),
-        querySelectorAll: jest.fn(() => []),
-        textContent: '',
-        className: '',
-    });
+            textContent: '',
+            className: '',
+        };
+
+        return element;
+    };
 
     global.document = {
         querySelector: jest.fn(() => null),
         querySelectorAll: jest.fn(() => []),
         getElementById: jest.fn(() => ({ addEventListener: jest.fn() })),
-        createElement: jest.fn(mockElement),
+        createElement: jest.fn((tag) => mockElement(tag)),
         createDocumentFragment: jest.fn(() => ({
             childNodes: [],
             appendChild(node) {
@@ -131,7 +175,8 @@ const createMockSourceRow = ({
     stableToken = null,
     href = null,
     ariaControls = null,
-    loading = false
+    loading = false,
+    imageCandidates = []
 }) => {
     const checkbox = {
         checked,
@@ -179,12 +224,37 @@ const createMockSourceRow = ({
             if (selector === '[data-source-id]' && tokenNode) return [tokenNode];
             if (selector === '[href]' && hrefNode) return [hrefNode];
             if (selector === '[aria-controls]' && ariaControlsNode) return [ariaControlsNode];
+            if (selector === 'img') return imageCandidates.filter((candidate) => candidate.tagName === 'IMG');
+            if (selector === '[style*="background-image"]') {
+                return imageCandidates.filter((candidate) => (
+                    Boolean(candidate.style?.backgroundImage) ||
+                    Boolean(candidate.__computedStyle?.backgroundImage)
+                ));
+            }
             return [];
         })
     };
 
     return { row, checkbox, titleEl, iconEl };
 };
+
+const createMockImageCandidate = ({
+    src = null,
+    currentSrc = null,
+    backgroundImage = '',
+    insideInteractive = false
+} = {}) => ({
+    tagName: src || currentSrc ? 'IMG' : 'DIV',
+    src,
+    currentSrc,
+    style: backgroundImage ? { backgroundImage } : {},
+    __computedStyle: backgroundImage ? { backgroundImage } : {},
+    getAttribute: jest.fn((attr) => {
+        if (attr === 'src') return src;
+        return null;
+    }),
+    closest: jest.fn(() => (insideInteractive ? {} : null))
+});
 
 const createSearchUiMock = () => {
     const controls = {
@@ -1398,6 +1468,126 @@ describe('manager shell structure', () => {
             'sp-manage-tags-btn',
             'sp-batch-action-btn'
         ]);
+    });
+});
+
+describe('source icon handling', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+        global.setTimeout = jest.fn();
+        global.clearTimeout = jest.fn();
+        mod = loadContentModule();
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('extracts native image urls without changing existing icon mapping', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Image Source',
+            iconName: 'video_youtube',
+            imageCandidates: [
+                createMockImageCandidate({ src: 'https://example.com/favicon.ico' })
+            ]
+        });
+
+        const descriptor = mod.createSourceDescriptor(sourceRow.row, new Map(), new Map());
+
+        expect(descriptor.iconImageUrl).toBe('https://example.com/favicon.ico');
+        expect(descriptor.iconName).toBe('smart_display');
+    });
+
+    it('extracts background image urls and resolves relative paths against the page', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Background Source',
+            imageCandidates: [
+                createMockImageCandidate({ backgroundImage: 'url("/thumbs/source.png")' })
+            ]
+        });
+
+        expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://notebooklm.google.com/thumbs/source.png');
+    });
+
+    it('ignores decorative images inside interactive controls', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Decorative Source',
+            imageCandidates: [
+                createMockImageCandidate({
+                    src: 'https://example.com/ignore.png',
+                    insideInteractive: true
+                })
+            ]
+        });
+
+        const descriptor = mod.createSourceDescriptor(sourceRow.row, new Map(), new Map());
+
+        expect(descriptor.iconImageUrl).toBeNull();
+        expect(descriptor.iconName).toBe('article');
+    });
+
+    it('keeps fingerprint-based ids stable when the source image changes', () => {
+        const firstPass = createMockSourceRow({
+            title: 'Persistent Source',
+            iconName: 'article',
+            imageCandidates: [
+                createMockImageCandidate({ src: 'https://example.com/a.png' })
+            ]
+        });
+        const secondPass = createMockSourceRow({
+            title: 'Persistent Source',
+            iconName: 'article',
+            imageCandidates: [
+                createMockImageCandidate({ src: 'https://example.com/b.png' })
+            ]
+        });
+
+        const firstDescriptor = mod.createSourceDescriptor(firstPass.row, new Map(), new Map());
+        const secondDescriptor = mod.createSourceDescriptor(secondPass.row, new Map(), new Map());
+
+        expect(firstDescriptor.identityType).toBe('fingerprint');
+        expect(secondDescriptor.identityType).toBe('fingerprint');
+        expect(firstDescriptor.key).toBe(secondDescriptor.key);
+        expect(firstDescriptor.fingerprint).toBe(secondDescriptor.fingerprint);
+        expect(firstDescriptor.iconImageUrl).not.toBe(secondDescriptor.iconImageUrl);
+    });
+
+    it('renders image icons and falls back to glyphs when the image fails', () => {
+        const source = {
+            iconImageUrl: 'https://example.com/icon.png',
+            iconName: 'article',
+            iconColorClass: '',
+            isLoading: false
+        };
+
+        const imageEl = mod.createSourceIconElement(source, false);
+        const container = global.document.createElement('div');
+        container.appendChild(imageEl);
+
+        expect(imageEl.tagName).toBe('IMG');
+        imageEl.dispatchEvent({ type: 'error' });
+
+        expect(container.childNodes[0].tagName).toBe('MAT-ICON');
+    });
+
+    it('prefers loading and failed states over source images', () => {
+        const loadingIcon = mod.createSourceIconElement({
+            iconImageUrl: 'https://example.com/icon.png',
+            iconName: 'article',
+            iconColorClass: '',
+            isLoading: true
+        }, false);
+        const failedIcon = mod.createSourceIconElement({
+            iconImageUrl: 'https://example.com/icon.png',
+            iconName: 'article',
+            iconColorClass: '',
+            isLoading: false
+        }, true);
+
+        expect(loadingIcon.className).toBe('sp-spinner');
+        expect(failedIcon.tagName).toBe('MAT-ICON');
     });
 });
 
