@@ -2094,7 +2094,7 @@ describe('tag persistence and filtering', () => {
         });
         mod.state.ungrouped = ['source1'];
 
-        const researchTagId = mod.createTag('Research');
+        const researchTagId = mod.createTag('Research', { color: 'ff9500' });
         const priorityTagId = mod.createTag('Priority');
         mod.setSourceTagIds('source1', [researchTagId, priorityTagId]);
 
@@ -2105,10 +2105,17 @@ describe('tag persistence and filtering', () => {
                 source1: [researchTagId, priorityTagId]
             },
             tagsById: {
-                [researchTagId]: { id: researchTagId, label: 'Research' },
+                [researchTagId]: { id: researchTagId, label: 'Research', color: '#FF9500' },
                 [priorityTagId]: { id: priorityTagId, label: 'Priority' }
             }
         });
+    });
+
+    it('normalizes custom tag colors to uppercase six-digit hex', () => {
+        expect(mod.normalizeTagColor('34c759')).toBe('#34C759');
+        expect(mod.normalizeTagColor('#007aff')).toBe('#007AFF');
+        expect(mod.normalizeTagColor('#ABC')).toBe(null);
+        expect(mod.normalizeTagColor('not-a-color')).toBe(null);
     });
 
     it('normalizes v2 state into v3-compatible empty tag structures', () => {
@@ -2165,6 +2172,35 @@ describe('tag persistence and filtering', () => {
         expect(mod.getSourceTagIds(descriptor.key)).toEqual([tagId]);
     });
 
+    it('loads stored tag colors while tolerating legacy tags without color', () => {
+        global.document.querySelectorAll = jest.fn(() => []);
+
+        mod.scanAndSyncSources({
+            schemaVersion: 3,
+            groups: [],
+            groupsById: {},
+            ungrouped: [],
+            sourceStateById: {},
+            tagsById: {
+                tag_green: { id: 'tag_green', label: 'Green', color: '#34c759' },
+                tag_legacy: { id: 'tag_legacy', label: 'Legacy' }
+            },
+            tagOrder: ['tag_green', 'tag_legacy'],
+            sourceTagsById: {}
+        }, true);
+
+        expect(mod.tagsById.get('tag_green')).toMatchObject({
+            id: 'tag_green',
+            label: 'Green',
+            color: '#34C759'
+        });
+        expect(mod.tagsById.get('tag_legacy')).toMatchObject({
+            id: 'tag_legacy',
+            label: 'Legacy',
+            color: null
+        });
+    });
+
     it('combines active tag filtering with text search', () => {
         const alphaTagId = mod.createTag('Alpha');
         const betaTagId = mod.createTag('Beta');
@@ -2194,6 +2230,31 @@ describe('tag persistence and filtering', () => {
         expect(mod.getSourceTagIds('source1')).toEqual([]);
         expect(mod.getSourceTagIds('source2')).toEqual([]);
         expect(mod.tagsById.has(tagId)).toBe(false);
+    });
+
+    it('preserves duplicate-name validation while allowing color-only edits', () => {
+        const alphaTagId = mod.createTag('Alpha', { color: '#007AFF' });
+        const betaTagId = mod.createTag('Beta');
+
+        expect(mod.updateTag(betaTagId, { label: 'Alpha', color: '#FF9500' })).toBe(alphaTagId);
+        expect(mod.tagsById.get(betaTagId)).toMatchObject({
+            id: betaTagId,
+            label: 'Beta',
+            color: null
+        });
+
+        expect(mod.updateTag(betaTagId, { label: 'Beta', color: '#FF9500' })).toBe(betaTagId);
+        expect(mod.tagsById.get(betaTagId)).toMatchObject({
+            id: betaTagId,
+            label: 'Beta',
+            color: '#FF9500'
+        });
+    });
+
+    it('generates style variables only for colored tags', () => {
+        expect(mod.getTagStyleVars({ color: '#007AFF' }, true)).toContain('--sp-tag-active-text:#007AFF');
+        expect(mod.getTagStyleVars({ color: '#007AFF' }, false)).toContain('--sp-tag-bg:rgba(0, 122, 255, 0.1)');
+        expect(mod.getTagStyleVars({ color: null }, false)).toBe('');
     });
 });
 

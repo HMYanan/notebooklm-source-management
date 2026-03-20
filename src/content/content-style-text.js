@@ -536,9 +536,9 @@
                 width: 100%;
             }
             .sp-tag-pill {
-                border: 1px solid var(--sp-border-light);
-                background: var(--sp-bg-secondary);
-                color: var(--sp-text-secondary);
+                border: 1px solid var(--sp-tag-border, var(--sp-border-light));
+                background: var(--sp-tag-bg, var(--sp-bg-secondary));
+                color: var(--sp-tag-text, var(--sp-text-secondary));
                 border-radius: 999px;
                 padding: 2px 8px;
                 font-size: 11px;
@@ -547,14 +547,14 @@
                 transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
             }
             .sp-tag-pill:hover {
-                background: var(--sp-bg-hover);
-                color: var(--sp-text-primary);
-                border-color: var(--sp-border-medium);
+                background: var(--sp-tag-hover-bg, var(--sp-bg-hover));
+                color: var(--sp-tag-hover-text, var(--sp-text-primary));
+                border-color: var(--sp-tag-hover-border, var(--sp-border-medium));
             }
             .sp-tag-pill.is-active {
-                background: rgba(0, 122, 255, 0.12);
-                border-color: rgba(0, 122, 255, 0.3);
-                color: var(--sp-accent);
+                background: var(--sp-tag-active-bg, rgba(0, 122, 255, 0.12));
+                border-color: var(--sp-tag-active-border, rgba(0, 122, 255, 0.3));
+                color: var(--sp-tag-active-text, var(--sp-accent));
             }
             .checkbox-container {
                 flex-shrink: 0;
@@ -938,10 +938,18 @@
             .sp-tag-modal-content {
                 gap: 8px;
             }
-            .sp-tag-create-row {
+            .sp-tag-editor {
                 display: flex;
+                flex-direction: column;
                 gap: 8px;
-                align-items: center;
+                align-items: stretch;
+            }
+            .sp-tag-create-row,
+            .sp-tag-edit-row {
+                padding: 12px;
+                border-radius: 12px;
+                background: var(--sp-bg-primary);
+                border: 1px solid var(--sp-border-light);
             }
             .sp-tag-input {
                 width: 100%;
@@ -958,6 +966,82 @@
                 border-color: var(--sp-accent);
                 box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
             }
+            .sp-tag-color-group {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            .sp-tag-color-heading {
+                font-size: 12px;
+                color: var(--sp-text-secondary);
+            }
+            .sp-tag-color-presets {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .sp-tag-color-swatch {
+                width: 24px;
+                height: 24px;
+                border-radius: 999px;
+                border: 2px solid transparent;
+                cursor: pointer;
+                transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+            }
+            .sp-tag-color-swatch:hover {
+                transform: translateY(-1px);
+            }
+            .sp-tag-color-swatch.is-active {
+                border-color: var(--sp-text-primary);
+                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+            }
+            .sp-tag-color-swatch-none {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--sp-text-secondary);
+                background: var(--sp-bg-secondary);
+                border-color: var(--sp-border-light);
+                box-shadow: none;
+            }
+            .sp-tag-color-swatch-none .google-symbols {
+                font-size: 15px;
+            }
+            .sp-tag-color-input-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .sp-tag-color-trigger {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+            }
+            .sp-tag-color-trigger-swatch {
+                width: 14px;
+                height: 14px;
+                flex-shrink: 0;
+                border-radius: 999px;
+                border: 1px solid rgba(0, 0, 0, 0.08);
+            }
+            .sp-tag-color-native-input {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                opacity: 0;
+                pointer-events: none;
+            }
+            .sp-tag-color-hex {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                letter-spacing: 0.02em;
+            }
+            .sp-tag-editor-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+            }
             .sp-tag-option,
             .sp-tag-row {
                 display: flex;
@@ -970,6 +1054,23 @@
             }
             .sp-tag-option-checkbox {
                 margin: 0;
+            }
+            .sp-tag-manage-item {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            .sp-tag-row-color {
+                width: 14px;
+                height: 14px;
+                flex-shrink: 0;
+                border-radius: 999px;
+                border: 1px solid transparent;
+                background: var(--sp-bg-secondary);
+            }
+            .sp-tag-row-color.is-neutral {
+                border-color: var(--sp-border-light);
+                background: linear-gradient(135deg, transparent 44%, var(--sp-text-secondary) 45%, var(--sp-text-secondary) 55%, transparent 56%), var(--sp-bg-secondary);
             }
             .sp-tag-option-label,
             .sp-tag-row-label {
