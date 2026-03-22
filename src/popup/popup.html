@@ -8,19 +8,30 @@
 </head>
 <body>
     <main class="popup-shell">
-        <div class="popup-header">
-            <img class="popup-icon" src="../assets/icons/icon48.png" alt="">
-            <div class="popup-header-copy">
-                <p class="popup-eyebrow" id="popup-badge"></p>
+        <section class="popup-panel" aria-labelledby="popup-title">
+            <header class="popup-header">
+                <div class="popup-brand-row">
+                    <div class="popup-icon-frame" aria-hidden="true">
+                        <img class="popup-icon" src="../assets/icons/icon48.png" alt="">
+                    </div>
+                    <p class="popup-eyebrow" id="popup-badge"></p>
+                </div>
                 <h1 class="popup-title" id="popup-title"></h1>
+            </header>
+
+            <div class="popup-content">
+                <p class="popup-body" id="popup-body"></p>
+
+                <div class="popup-status-stack">
+                    <p class="popup-note" id="popup-note"></p>
+                    <p class="popup-detail" id="popup-detail" aria-live="polite" hidden></p>
+                </div>
             </div>
-        </div>
 
-        <p class="popup-body" id="popup-body"></p>
-        <p class="popup-note" id="popup-note"></p>
-        <p class="popup-detail" id="popup-detail" hidden></p>
-
-        <button class="popup-button" id="popup-primary-btn" type="button"></button>
+            <div class="popup-actions">
+                <button class="popup-button" id="popup-primary-btn" type="button"></button>
+            </div>
+        </section>
     </main>
 
     <script src="../utils/index.js"></script>

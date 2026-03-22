@@ -183,6 +183,12 @@
     "ui_no_tags_for_source": {
         "message": "请先创建标签，再分配给这个来源。"
     },
+    "ui_source_untitled": {
+        "message": "未命名来源"
+    },
+    "ui_group_untitled": {
+        "message": "未命名分组"
+    },
     "ui_empty_group": {
         "message": "当前文件夹为空。"
     },

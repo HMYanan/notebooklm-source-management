@@ -183,6 +183,12 @@
     "ui_no_tags_for_source": {
         "message": "Create tags to assign them to this source."
     },
+    "ui_source_untitled": {
+        "message": "Untitled source"
+    },
+    "ui_group_untitled": {
+        "message": "Untitled group"
+    },
     "ui_empty_group": {
         "message": "This folder is empty."
     },

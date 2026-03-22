@@ -44,6 +44,7 @@
                 --sp-border-checkbox: rgba(0,0,0,0.25);
                 --sp-text-primary: #1A1A1C;
                 --sp-text-secondary: #6E6E73;
+                --sp-text-tertiary: #8e8e93;
                 --sp-text-toast: #fff;
                 --sp-text-badge: #6E6E73;
                 --sp-accent: #007aff;
@@ -51,12 +52,33 @@
                 --sp-accent-success: #34c759;
                 --sp-drag-bg: rgba(0, 122, 255, 0.05);
                 --sp-drag-into-bg: rgba(0, 122, 255, 0.1);
+                --sp-focus-ring: 0 0 0 3px rgba(0, 122, 255, 0.15);
+                --sp-focus-ring-soft: 0 0 0 3px rgba(0, 122, 255, 0.12);
+                --sp-focus-ring-strong: 0 0 0 3px rgba(0, 122, 255, 0.22), 0 18px 40px rgba(0, 122, 255, 0.18);
                 --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.08);
                 --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.08);
                 --sp-shadow-hover-item: 0 10px 24px rgba(0,0,0,0.08);
                 --sp-panel-bg: #f6f7f9;
                 --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
                 --sp-icon-button-hover: rgba(0,0,0,0.08);
+                --sp-tag-active-bg: rgba(0, 122, 255, 0.12);
+                --sp-tag-active-border: rgba(0, 122, 255, 0.3);
+                --sp-tag-active-text: var(--sp-accent);
+                --sp-isolate-active-bg: rgba(0, 122, 255, 0.12);
+                --sp-delete-hover-bg: rgba(255, 59, 48, 0.1);
+                --sp-overlay-backdrop: rgba(0, 0, 0, 0.2);
+                --sp-modal-bg: rgba(255, 255, 255, 0.85);
+                --sp-modal-border: rgba(0, 0, 0, 0.05);
+                --sp-modal-divider: rgba(0, 0, 0, 0.05);
+                --sp-modal-shadow: 0 24px 48px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0,0,0,0.1);
+                --sp-tag-swatch-inset: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+                --sp-tag-color-trigger-border: rgba(0, 0, 0, 0.08);
+                --sp-batch-selected-bg: rgba(0, 122, 255, 0.05);
+                --sp-batch-checkbox-bg: rgba(0, 122, 255, 0.1);
+                --sp-empty-state-bg: rgba(0, 0, 0, 0.01);
+                --sp-scrollbar-thumb: rgba(150, 150, 150, 0.3);
+                --sp-scrollbar-thumb-hover: rgba(150, 150, 150, 0.6);
+                --sp-menu-item-hover-bg: rgba(128, 128, 128, 0.1);
                 
                 /* Global Glassmorphism Variables */
                 --sp-glass-bg-body: rgba(255, 255, 255, 0.85);
@@ -83,6 +105,7 @@
                     --sp-border-checkbox: rgba(255,255,255,0.6);
                     --sp-text-primary: #f5f5f7;
                     --sp-text-secondary: #98989d;
+                    --sp-text-tertiary: #b0b0b5;
                     --sp-text-toast: #000;
                     --sp-text-badge: #98989d;
                     --sp-accent: #0a84ff;
@@ -90,12 +113,33 @@
                     --sp-accent-success: #30d158;
                     --sp-drag-bg: rgba(10, 132, 255, 0.1);
                     --sp-drag-into-bg: rgba(10, 132, 255, 0.15);
+                    --sp-focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.15);
+                    --sp-focus-ring-soft: 0 0 0 3px rgba(10, 132, 255, 0.12);
+                    --sp-focus-ring-strong: 0 0 0 3px rgba(10, 132, 255, 0.22), 0 18px 40px rgba(10, 132, 255, 0.18);
                     --sp-shadow-toast: 0 8px 32px rgba(0,0,0,0.4);
                     --sp-shadow-button: 0 8px 32px rgba(0,0,0,0.2);
                     --sp-shadow-hover-item: 0 12px 28px rgba(0,0,0,0.32);
                     --sp-panel-bg: #272c33;
                     --sp-shadow-switch-thumb: 0 1px 2px rgba(0,0,0,0.3), 0 0 1px rgba(0,0,0,0.2);
                     --sp-icon-button-hover: rgba(255,255,255,0.15);
+                    --sp-tag-active-bg: rgba(10, 132, 255, 0.16);
+                    --sp-tag-active-border: rgba(10, 132, 255, 0.34);
+                    --sp-tag-active-text: var(--sp-accent);
+                    --sp-isolate-active-bg: rgba(10, 132, 255, 0.16);
+                    --sp-delete-hover-bg: rgba(255, 69, 58, 0.16);
+                    --sp-overlay-backdrop: rgba(0, 0, 0, 0.6);
+                    --sp-modal-bg: rgba(30, 30, 32, 0.85);
+                    --sp-modal-border: rgba(255,255,255,0.1);
+                    --sp-modal-divider: rgba(255,255,255,0.05);
+                    --sp-modal-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255,255,255,0.1);
+                    --sp-tag-swatch-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+                    --sp-tag-color-trigger-border: rgba(255, 255, 255, 0.14);
+                    --sp-batch-selected-bg: rgba(10, 132, 255, 0.12);
+                    --sp-batch-checkbox-bg: rgba(10, 132, 255, 0.18);
+                    --sp-empty-state-bg: rgba(255, 255, 255, 0.01);
+                    --sp-scrollbar-thumb: rgba(150, 150, 150, 0.3);
+                    --sp-scrollbar-thumb-hover: rgba(150, 150, 150, 0.6);
+                    --sp-menu-item-hover-bg: rgba(128, 128, 128, 0.16);
                     
                     /* Global Glassmorphism Variables */
                     --sp-glass-bg-body: rgba(28, 28, 30, 0.85);
@@ -117,7 +161,7 @@
                 transition: box-shadow 0.35s cubic-bezier(0.25, 1, 0.5, 1), transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
             }
             .sp-container.sp-focus-ring {
-                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.22), 0 18px 40px rgba(0, 122, 255, 0.18);
+                box-shadow: var(--sp-focus-ring-strong);
                 transform: translateY(-2px);
             }
             .sp-resizer {
@@ -145,6 +189,21 @@
             }
             
             /* Sticky Header */
+            .sp-controls {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: nowrap;
+                min-width: 0;
+                flex-shrink: 0;
+                padding: 12px 0 8px;
+                position: sticky;
+                top: 0;
+                z-index: 20;
+                background: var(--sp-panel-bg);
+                border-bottom: 1px solid var(--sp-border-light);
+                transition: border-color 0.3s ease;
+            }
             .sp-controls::after {
                 content: none;
                 pointer-events: none;
@@ -153,7 +212,8 @@
                 display: flex;
                 align-items: center;
                 gap: 8px;
-                flex-shrink: 0;
+                flex: 1 1 auto;
+                min-width: 0;
                 max-width: 520px;
                 overflow: hidden;
                 transform-origin: right center;
@@ -245,7 +305,7 @@
             .sp-search-container.is-expanded:focus-within {
                 background-color: var(--sp-bg-button);
                 border-color: var(--sp-accent);
-                box-shadow: 0 0 0 3px rgba(0,122,255,0.15);
+                box-shadow: var(--sp-focus-ring);
             }
             #sp-search {
                 width: 0;
@@ -271,9 +331,12 @@
             }
             #sp-search:focus {
                 background-color: transparent;
-                border-color: transparent;
-                box-shadow: none;
+                border-color: var(--sp-accent);
+                box-shadow: var(--sp-focus-ring);
                 transform: none;
+            }
+            #sp-search:focus + #sp-search-btn .google-symbols {
+                color: var(--sp-accent);
             }
             #sp-search::placeholder {
                 color: var(--sp-text-secondary);
@@ -290,7 +353,7 @@
                 cursor: pointer;
                 border-radius: 8px;
                 flex-shrink: 0;
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
             }
             .sp-icon-button:hover {
                 background-color: var(--sp-icon-button-hover);
@@ -448,6 +511,9 @@
             .source-item {
                 padding-left: 12px;
                 border: 1px solid transparent;
+                border-radius: 8px;
+                margin-bottom: 2px;
+                transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
             }
             .group-header {
                 font-weight: 600;
@@ -488,6 +554,7 @@
                 justify-content: center;
                 width: 18px;
                 height: 18px;
+                overflow: hidden;
                 color: var(--sp-text-secondary);
                 transition: all 0.15s cubic-bezier(0.25, 1, 0.5, 1);
                 cursor: pointer;
@@ -499,6 +566,19 @@
             .icon-container .google-symbols {
                 font-size: 16px;
             }
+            .sp-group-title-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                width: 18px;
+                height: 18px;
+                margin-right: 8px;
+                color: var(--sp-text-secondary);
+            }
+            .sp-group-title-icon .google-symbols {
+                font-size: 18px;
+            }
             .source-icon-image {
                 width: 18px;
                 height: 18px;
@@ -506,6 +586,8 @@
                 object-fit: cover;
                 border-radius: 4px;
                 overflow: hidden;
+                pointer-events: none;
+                user-select: none;
             }
             .sp-source-actions-anchor {
                 position: relative;
@@ -517,9 +599,6 @@
             .title-container, .group-title {
                 flex-grow: 1;
                 min-width: 0;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                overflow: hidden;
                 font-size: 13px;
                 color: var(--sp-text-primary);
                 letter-spacing: -0.01em;
@@ -558,9 +637,9 @@
                 border-color: var(--sp-tag-hover-border, var(--sp-border-medium));
             }
             .sp-tag-pill.is-active {
-                background: var(--sp-tag-active-bg, rgba(0, 122, 255, 0.12));
-                border-color: var(--sp-tag-active-border, rgba(0, 122, 255, 0.3));
-                color: var(--sp-tag-active-text, var(--sp-accent));
+                background: var(--sp-tag-active-bg);
+                border-color: var(--sp-tag-active-border);
+                color: var(--sp-tag-active-text);
             }
             .checkbox-container {
                 flex-shrink: 0;
@@ -688,10 +767,10 @@
                 transform: translateX(0) scale(1);
                 pointer-events: auto;
                 color: var(--sp-accent);
-                background-color: rgba(0, 122, 255, 0.12);
+                background-color: var(--sp-isolate-active-bg);
             }
             .sp-delete-button:hover {
-                background-color: rgba(255, 59, 48, 0.1);
+                background-color: var(--sp-delete-hover-bg);
                 color: var(--sp-accent-danger);
                 transform: scale(1.1);
             }
@@ -760,11 +839,12 @@
             }
             .group-children { 
                 padding-left: 8px; 
-                border-left: 1px solid var(--sp-border-light); 
+                border-left: 2px solid var(--sp-border-light); 
+                border-radius: 0 0 0 6px;
                 margin-left: 18px; 
                 margin-top: 2px; 
                 overflow: visible; 
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                transition: border-color 0.3s ease, height 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease;
                 opacity: 1;
                 position: relative;
                 /* By default, let height be auto. JS will set explicit heights during animation. */
@@ -820,7 +900,7 @@
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.2);
+                background: var(--sp-overlay-backdrop);
                 z-index: 10000;
                 opacity: 0;
                 transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
@@ -841,34 +921,19 @@
                 width: 320px;
                 max-height: 80vh;
                 transform: translate(-50%, -50%);
-                background: rgba(255, 255, 255, 0.85);
+                background: var(--sp-modal-bg);
                 backdrop-filter: blur(24px);
                 -webkit-backdrop-filter: blur(24px);
-                border: 1px solid rgba(0, 0, 0, 0.05);
+                border: 1px solid var(--sp-modal-border);
                 border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+                box-shadow: var(--sp-modal-shadow);
                 z-index: 10001;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
                 opacity: 0;
                 pointer-events: none;
-            }
-            
-            /* Adjust for dark mode specifically */
-            @media (prefers-color-scheme: dark) {
-                .sp-folder-modal {
-                    background: rgba(30, 30, 32, 0.85);
-                    border-color: rgba(255,255,255,0.1);
-                    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-                }
-                .sp-overlay-backdrop {
-                    background: rgba(0, 0, 0, 0.6);
-                }
-                .sp-folder-modal-header,
-                .sp-folder-modal-footer {
-                    border-color: rgba(255,255,255,0.05);
-                }
+                transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
             }
             
             .sp-folder-modal.visible {
@@ -881,7 +946,7 @@
             }
             .sp-folder-modal-header {
                 padding: 16px 20px;
-                border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+                border-bottom: 1px solid var(--sp-modal-divider);
             }
             .sp-folder-modal-title {
                 font-size: 16px;
@@ -941,7 +1006,7 @@
                 padding: 12px 16px;
                 display: flex;
                 justify-content: flex-end;
-                border-top: 1px solid rgba(0, 0, 0, 0.05);
+                border-top: 1px solid var(--sp-modal-divider);
                 gap: 8px;
             }
             .sp-tag-modal-content {
@@ -973,7 +1038,7 @@
             }
             .sp-tag-input:focus {
                 border-color: var(--sp-accent);
-                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+                box-shadow: var(--sp-focus-ring-soft);
             }
             .sp-tag-color-group {
                 display: flex;
@@ -995,15 +1060,15 @@
                 border-radius: 999px;
                 border: 2px solid transparent;
                 cursor: pointer;
-                transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+                transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+                box-shadow: var(--sp-tag-swatch-inset);
             }
             .sp-tag-color-swatch:hover {
-                transform: translateY(-1px);
+                transform: scale(1.05);
             }
             .sp-tag-color-swatch.is-active {
                 border-color: var(--sp-text-primary);
-                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+                box-shadow: var(--sp-focus-ring-soft);
             }
             .sp-tag-color-swatch-none {
                 display: inline-flex;
@@ -1033,7 +1098,7 @@
                 height: 14px;
                 flex-shrink: 0;
                 border-radius: 999px;
-                border: 1px solid rgba(0, 0, 0, 0.08);
+                border: 1px solid var(--sp-tag-color-trigger-border);
             }
             .sp-tag-color-native-input {
                 position: absolute;
@@ -1256,12 +1321,12 @@
             
             /* --- Batch Mode Additions --- */
             .source-item.selected-for-batch {
-                background-color: rgba(0, 122, 255, 0.05);
+                background-color: var(--sp-batch-selected-bg);
                 border: 1px dashed var(--sp-accent);
             }
             .sp-batch-checkbox {
                 border-color: var(--sp-accent);
-                background-color: rgba(0, 122, 255, 0.1);
+                background-color: var(--sp-batch-checkbox-bg);
             }
             .sp-batch-checkbox:checked {
                 background-color: var(--sp-accent);
@@ -1281,7 +1346,7 @@
                 -webkit-backdrop-filter: blur(20px) saturate(180%);
                 border: 1px solid var(--sp-glass-border, rgba(0, 0, 0, 0.05));
                 border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+                box-shadow: var(--sp-glass-shadow);
                 z-index: 5;
             }
             .sp-batch-actions {
@@ -1329,13 +1394,8 @@
                 color: var(--sp-text-secondary);
                 font-size: 13px;
                 font-weight: 500;
-                background-color: rgba(0, 0, 0, 0.01);
+                background-color: var(--sp-empty-state-bg);
                 transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            @media (prefers-color-scheme: dark) {
-                .sp-empty-state {
-                    background-color: rgba(255, 255, 255, 0.01);
-                }
             }
             .group-container.drag-into > .group-children > .sp-empty-state {
                 background-color: var(--sp-drag-into-bg);
@@ -1344,45 +1404,15 @@
                 transform: scale(1.02);
             }
             
-            /* 2. Global Icon Button Click Feedback */
-            .sp-icon-button {
-                transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            .sp-icon-button:active {
-                transform: scale(0.85);
-            }
-
-
             /* =========================================
                UI Polish Part 3: Typography & Layout
                ========================================= */
 
-            /* 1. Sticky Controls with Glassmorphism */
-            .sp-controls {
-                display: flex;
-                flex-wrap: nowrap;
-                align-items: center;
-                gap: 8px;
-                flex-shrink: 0;
-                padding: 12px 8px 8px 0;
-                position: sticky;
-                top: 0;
-                z-index: 20;
-                background: var(--sp-panel-bg);
-                backdrop-filter: none;
-                -webkit-backdrop-filter: none;
-                margin-bottom: 0;
-                border-bottom: 1px solid var(--sp-border-light);
-                transition: border-color 0.3s ease;
-            }
-            /* Add a subtle border when scrolling */
             #sources-list:not(:empty) {
                 padding-top: 0;
             }
 
-            /* 2. Advanced Typography & Line Clamp */
             .source-title-text, .group-title {
-                /* Replace single line ellipsis with up to 2 lines */
                 white-space: normal;
                 display: -webkit-box;
                 -webkit-line-clamp: 2;
@@ -1394,17 +1424,6 @@
             .group-name {
                 font-weight: 500;
                 letter-spacing: 0.1px;
-            }
-            
-            /* 3. Enhanced Modal Depth (Material 3) */
-            .sp-folder-modal {
-                box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0,0,0,0.1);
-                transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
-            }
-            @media (prefers-color-scheme: dark) {
-                .sp-folder-modal {
-                    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255,255,255,0.1);
-                }
             }
 
             .sp-cancel-batch-btn {
@@ -1425,42 +1444,14 @@
                 background: transparent;
             }
             #sources-list::-webkit-scrollbar-thumb {
-                background: rgba(150, 150, 150, 0.3);
+                background: var(--sp-scrollbar-thumb);
                 border-radius: 10px;
             }
             #sources-list::-webkit-scrollbar-thumb:hover {
-                background: rgba(150, 150, 150, 0.6);
-            }
-
-            /* 2. Tree-view Hierarchy Lines & Item Styling */
-            .source-item {
-                border-radius: 8px;
-                margin-bottom: 2px;
-                transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-            }
-            .source-item:hover {
-                background-color: var(--sp-bg-hover);
-            }
-            .group-children {
-                border-left: 2px solid var(--sp-border-light) !important;
-                border-radius: 0 0 0 6px;
-                transition: border-color 0.3s ease, height 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease;
+                background: var(--sp-scrollbar-thumb-hover);
             }
             .group-container:hover > .group-children {
-                border-left-color: var(--sp-accent) !important;
-            }
-
-            /* 3. Micro-interactions & Focus Rings */
-            #sp-search {
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            #sp-search:focus {
-                outline: none;
-                border-color: var(--sp-accent);
-                box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15); /* Apple style focus ring */
-            }
-            #sp-search:focus + #sp-search-btn .google-symbols {
-                color: var(--sp-accent);
+                border-left-color: var(--sp-accent);
             }
             
             /* Enhanced Drag Feedback */
@@ -1518,7 +1509,7 @@
                     /* Menu item hover effects inside the glass panel */
                     body .cdk-overlay-container .mat-mdc-menu-item:hover,
                     body .cdk-overlay-container .mat-menu-item:hover {
-                        background-color: rgba(128, 128, 128, 0.1) !important;
+                        background-color: var(--sp-menu-item-hover-bg, rgba(128, 128, 128, 0.1)) !important;
                     }
 
                     /* 2. Dialogs / Modals (New Note, Rename, Delete Confirmation) */

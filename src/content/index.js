@@ -3,12 +3,14 @@
 
     // --- Selectors & Dependencies ---
     const contentConfig = globalThis.NSM_CONTENT_CONFIG;
+    const sourceDescriptorHelpers = globalThis.NSM_SOURCE_DESCRIPTOR_HELPERS;
     const contentStyleText = globalThis.NSM_CONTENT_STYLE_TEXT;
     const globalOverlayStyleText = globalThis.NSM_GLOBAL_OVERLAY_STYLE_TEXT;
     const createManagerShell = globalThis.NSM_CREATE_MANAGER_SHELL;
 
     if (
         !contentConfig ||
+        !sourceDescriptorHelpers ||
         typeof contentStyleText !== 'string' ||
         typeof globalOverlayStyleText !== 'string' ||
         typeof createManagerShell !== 'function'
@@ -27,6 +29,12 @@
         ROUTE_REINIT_MAX_ATTEMPTS,
         ROUTE_REINIT_RETRY_DELAY_MS
     } = contentConfig;
+    const {
+        createSourceDescriptor,
+        extractSourceIconImageUrl,
+        generateSourceKey,
+        normalizeSourceText
+    } = sourceDescriptorHelpers;
 
     // --- State Management ---
     let state = {
@@ -52,7 +60,6 @@
     let isProcessingQueue = false;
     let customHeight = null; // Store user defined height
     let scrollObserver = null; // Store MutationObserver globally for teardown
-    let healthCheckInterval = null; // Store heartbeat interval for teardown
     let extensionHost = null;
     let managerStatusReason = 'manager_not_ready';
     let focusHighlightTimeout = null;
@@ -550,260 +557,6 @@
             return pathSegments[notebookIndex + 1];
         }
         return null;
-    }
-
-    function generateSourceKey(title) {
-        let hash = 0;
-        for (let i = 0; i < title.length; i++) {
-            const char = title.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash |= 0;
-        }
-        return `source_${hash}`;
-    }
-
-    function normalizeSourceText(value) {
-        return String(value || '')
-            .trim()
-            .replace(/\s+/g, ' ')
-            .toLowerCase();
-    }
-
-    function sanitizeSourceToken(value) {
-        return normalizeSourceText(value)
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '')
-            .slice(0, 96);
-    }
-
-    function extractTokenFromUrl(url) {
-        if (typeof url !== 'string' || !url) return null;
-
-        try {
-            const parsedUrl = new URL(url, window.location.origin);
-            const preferredParams = [
-                'source', 'sourceId', 'source_id',
-                'documentId', 'document_id',
-                'docId', 'doc_id',
-                'fileId', 'file_id',
-                'resourceId', 'resource_id',
-                'id'
-            ];
-
-            for (const key of preferredParams) {
-                const value = parsedUrl.searchParams.get(key);
-                const sanitized = sanitizeSourceToken(value ? `${key}:${value}` : '');
-                if (sanitized) return sanitized;
-            }
-
-            const segments = parsedUrl.pathname.split('/').filter(Boolean);
-            const lastSegment = segments[segments.length - 1];
-            if (lastSegment && /[A-Za-z0-9_-]{6,}/.test(lastSegment)) {
-                return sanitizeSourceToken(`${segments[segments.length - 2] || 'path'}:${lastSegment}`);
-            }
-        } catch (error) {
-            return null;
-        }
-
-        return null;
-    }
-
-    function extractSourceStableToken(sourceRow) {
-        if (!sourceRow) return null;
-
-        const selectors = [
-            '[data-source-id]',
-            '[data-document-id]',
-            '[data-doc-id]',
-            '[data-resource-id]',
-            '[data-item-id]',
-            '[data-id]',
-            '[href]'
-        ];
-        const attributeKeys = [
-            'data-source-id',
-            'data-document-id',
-            'data-doc-id',
-            'data-resource-id',
-            'data-item-id',
-            'data-id'
-        ];
-        const candidates = [sourceRow];
-
-        for (const selector of selectors) {
-            const nodes = sourceRow.querySelectorAll ? Array.from(sourceRow.querySelectorAll(selector)).slice(0, 8) : [];
-            candidates.push(...nodes);
-        }
-
-        for (const candidate of candidates) {
-            if (!candidate || typeof candidate.getAttribute !== 'function') continue;
-
-            for (const attributeKey of attributeKeys) {
-                const attributeValue = candidate.getAttribute(attributeKey);
-                const sanitized = sanitizeSourceToken(attributeValue ? `${attributeKey}:${attributeValue}` : '');
-                if (sanitized) return sanitized;
-            }
-
-            const hrefToken = extractTokenFromUrl(candidate.getAttribute('href'));
-            if (hrefToken) return hrefToken;
-        }
-
-        return null;
-    }
-
-    function extractCssUrl(value) {
-        if (typeof value !== 'string' || !value) return null;
-        const match = value.match(/url\((['"]?)(.*?)\1\)/i);
-        return match && match[2] ? match[2] : null;
-    }
-
-    function resolveSourceImageUrl(url) {
-        if (typeof url !== 'string') return null;
-
-        const trimmed = url.trim();
-        if (!trimmed || trimmed === 'none') return null;
-
-        const lowerValue = trimmed.toLowerCase();
-        if (
-            lowerValue.startsWith('data:') ||
-            lowerValue.startsWith('blob:') ||
-            lowerValue.startsWith('chrome-extension:')
-        ) {
-            return trimmed;
-        }
-
-        const baseUrl = window.location.href || window.location.origin || location.href;
-        try {
-            return new URL(trimmed, baseUrl).href;
-        } catch (error) {
-            return trimmed;
-        }
-    }
-
-    function isIgnoredSourceImageCandidate(candidate) {
-        if (!candidate) return true;
-
-        const ignoredInteractiveAncestorSelector = [
-            'button',
-            '[role="button"]',
-            '[role="menu"]',
-            '[role="menuitem"]',
-            '[role="checkbox"]',
-            'label',
-            'input',
-            'mat-checkbox'
-        ].join(', ');
-
-        if (typeof candidate.closest === 'function' && candidate.closest(ignoredInteractiveAncestorSelector)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    function extractSourceIconImageUrl(sourceElement) {
-        if (!sourceElement) return null;
-
-        const selectors = Array.isArray(DEPS.iconImage) ? DEPS.iconImage : [];
-        const candidates = [];
-
-        for (const selector of selectors) {
-            const nodes = sourceElement.querySelectorAll ? Array.from(sourceElement.querySelectorAll(selector)).slice(0, 12) : [];
-            candidates.push(...nodes);
-        }
-
-        for (const candidate of candidates) {
-            if (!candidate || isIgnoredSourceImageCandidate(candidate)) continue;
-
-            const directUrl = resolveSourceImageUrl(
-                candidate.currentSrc ||
-                candidate.src ||
-                (typeof candidate.getAttribute === 'function' ? candidate.getAttribute('src') : '')
-            );
-            if (directUrl) return directUrl;
-
-            const inlineBackgroundUrl = resolveSourceImageUrl(extractCssUrl(candidate.style?.backgroundImage));
-            if (inlineBackgroundUrl) return inlineBackgroundUrl;
-
-            const computedBackground = window.getComputedStyle ? window.getComputedStyle(candidate) : null;
-            const computedBackgroundUrl = resolveSourceImageUrl(extractCssUrl(computedBackground?.backgroundImage));
-            if (computedBackgroundUrl) return computedBackgroundUrl;
-        }
-
-        return null;
-    }
-
-    function buildLegacySourceKey(keyTitle, seenLegacyKeys) {
-        const baseKey = generateSourceKey(keyTitle);
-        const duplicateIndex = seenLegacyKeys.get(baseKey) || 0;
-        seenLegacyKeys.set(baseKey, duplicateIndex + 1);
-        return duplicateIndex === 0 ? baseKey : `${baseKey}_${duplicateIndex}`;
-    }
-
-    function createSourceDescriptor(sourceElement, seenSourceIds, seenLegacyKeys) {
-        const titleEl = findElement(DEPS.title, sourceElement);
-        const checkbox = findElement(DEPS.checkbox, sourceElement);
-        const ariaLabel = checkbox ? (checkbox.getAttribute('aria-label') || '') : '';
-        const keyTitle = ariaLabel || titleEl?.textContent || '';
-        const title = titleEl?.textContent.trim() || 'Untitled Source';
-
-        let iconEl = findElement(DEPS.icon, sourceElement);
-        let iconName = iconEl?.textContent.trim() || 'article';
-        const iconMap = {
-            'video_youtube': 'smart_display',
-            'more_vert': 'article',
-            'audiotrack': 'headphones',
-            'picture_as_pdf': 'description',
-            'drive_pdf': 'description',
-            'link': 'link',
-            'format_quote': 'format_quote',
-            'text_snippet': 'article',
-            'note': 'sticky_note_2'
-        };
-
-        if (iconMap[iconName]) {
-            iconName = iconMap[iconName];
-            if (iconName === 'article' && iconEl?.textContent.trim() === 'more_vert') {
-                iconEl = null;
-            }
-        }
-
-        const iconColorClass = Array.from(iconEl?.classList || []).find(cls => cls.endsWith('-icon-color')) || '';
-        const iconImageUrl = extractSourceIconImageUrl(sourceElement);
-        const stableToken = extractSourceStableToken(sourceElement);
-        const fingerprint = [
-            normalizeSourceText(title),
-            normalizeSourceText(ariaLabel),
-            normalizeSourceText(iconName)
-        ].join('|');
-        const identityType = stableToken ? 'stable-token' : 'fingerprint';
-        const sourceIdBase = stableToken
-            ? `source_id_${stableToken}`
-            : `source_fp_${generateSourceKey(fingerprint)}`;
-        const duplicateIndex = seenSourceIds.get(sourceIdBase) || 0;
-        seenSourceIds.set(sourceIdBase, duplicateIndex + 1);
-        const key = duplicateIndex === 0 ? sourceIdBase : `${sourceIdBase}_${duplicateIndex}`;
-        const legacyKey = buildLegacySourceKey(keyTitle, seenLegacyKeys);
-        const isLoading = Boolean(sourceElement.querySelector('[role="progressbar"], mat-spinner, svg animateTransform'));
-        const isDisabled = !checkbox || checkbox.disabled || isLoading;
-
-        return {
-            key,
-            legacyKey,
-            title,
-            normalizedTitle: normalizeSourceText(title),
-            lowercaseTitle: normalizeSourceText(title),
-            ariaLabel,
-            fingerprint,
-            identityType,
-            element: sourceElement,
-            iconName,
-            iconColorClass,
-            iconImageUrl,
-            checkbox,
-            isLoading,
-            isDisabled
-        };
     }
 
     function normalizeTagLabel(value) {
@@ -1623,7 +1376,7 @@
         state.isBatchMode = false;
         closeSourceActionMenu();
 
-        showToast(chrome.i18n.getMessage("ui_deleted_toast", [deletedCount.toString()]));
+        showToast(getMessage('ui_deleted_toast', [deletedCount.toString()]));
         render(); // The heartbeat observer will catch the actual DOM removals eventually
     }
 
@@ -2152,7 +1905,7 @@
         const modal = el('div', { className: 'sp-folder-modal', id: 'sp-move-modal' });
 
         const header = el('div', { className: 'sp-folder-modal-header' }, [
-            el('h3', { className: 'sp-folder-modal-title' }, [chrome.i18n.getMessage("ui_move_to_folder") || "Move to folder"])
+            el('h3', { className: 'sp-folder-modal-title' }, [getMessage('ui_move_to_folder')])
         ]);
 
         const content = el('div', { className: 'sp-folder-modal-content' });
@@ -2165,7 +1918,7 @@
                 folderFound = true;
                 const folderBtn = el('button', { className: 'sp-folder-option' }, [
                     el('span', { className: 'google-symbols' }, ['folder']),
-                    el('span', { className: 'sp-folder-option-title' }, [group.title || "Group"])
+                    el('span', { className: 'sp-folder-option-title' }, [group.title || getMessage('ui_group_untitled')])
                 ]);
 
                 folderBtn.addEventListener('click', () => {
@@ -2177,12 +1930,12 @@
 
 
         if (!folderFound) {
-            const emptyText = chrome.i18n.getMessage("ui_empty_folders") || "No folders available yet.\nCreate one first.";
+            const emptyText = getMessage('ui_empty_folders');
             content.appendChild(el('div', { className: 'sp-folder-empty' }, [emptyText]));
         }
 
         const footer = el('div', { className: 'sp-folder-modal-footer' }, [
-            el('button', { className: 'sp-modal-cancel' }, [chrome.i18n.getMessage("ui_cancel") || "Cancel"])
+            el('button', { className: 'sp-modal-cancel' }, [getMessage('ui_cancel')])
         ]);
 
         footer.querySelector('.sp-modal-cancel').addEventListener('click', closeMoveToFolderModal);
@@ -2913,6 +2666,12 @@
         return el('mat-icon', { className: `${iconColorClass || 'icon-color'} mat-icon google-symbols` }, [iconName]);
     }
 
+    function createGroupTitleIconElement() {
+        return el('span', { className: 'sp-group-title-icon', 'aria-hidden': 'true' }, [
+            el('span', { className: 'google-symbols' }, ['folder'])
+        ]);
+    }
+
     function replaceSourceIconWithFallback(imageElement, source) {
         if (!imageElement || imageElement.__spFallbackApplied) return;
         imageElement.__spFallbackApplied = true;
@@ -3058,6 +2817,7 @@
 
             const isGated = !group.enabled || !areAllAncestorsEnabled(group.id) || !isGroupWithinActiveIsolation(group.id);
             const { on, total } = getGroupEffectiveState(group);
+            const groupTitle = group.title || getMessage('ui_group_untitled');
             const childrenElements = [];
 
             group.children.forEach((child) => {
@@ -3096,7 +2856,8 @@
                         el('input', { type: 'checkbox', className: 'sp-group-toggle-checkbox', dataset: { groupId: group.id }, checked: group.enabled }),
                         el('span', { className: 'sp-toggle-slider' })
                     ]) : '',
-                    el('span', { className: 'group-title' }, ['📁 ' + group.title]),
+                    createGroupTitleIconElement(),
+                    el('span', { className: 'group-title' }, [groupTitle]),
                     el('span', { className: 'badge' }, [` ${on} / ${total} `]),
                     el('button', { className: 'sp-add-subgroup-button', title: getMessage('ui_add_subgroup') }, [el('span', { className: 'google-symbols' }, ['create_new_folder'])]),
                     el('button', {
@@ -3560,8 +3321,7 @@
         const input = document.createElement('input');
         input.type = 'text';
         input.value = originalTitle;
-        titleSpan.textContent = '📁 ';
-        titleSpan.appendChild(input);
+        titleSpan.replaceChildren(input);
         input.focus();
         input.select();
         const cleanup = () => {
@@ -3946,10 +3706,6 @@
             scrollObserver.disconnect();
             scrollObserver = null;
         }
-        if (healthCheckInterval) {
-            clearTimeout(healthCheckInterval);
-            healthCheckInterval = null;
-        }
         document.removeEventListener('change', handleOriginalCheckboxChange, true);
         document.removeEventListener('click', handleDocumentOutsideClick, true);
         if (shadowRoot && typeof shadowRoot.removeEventListener === 'function') {
@@ -4296,6 +4052,7 @@
             areAllAncestorsEnabled,
             buildPersistableState,
             createTag,
+            createGroupTitleIconElement,
             createSourceDescriptor,
             createSourceIconElement,
             deleteTag,

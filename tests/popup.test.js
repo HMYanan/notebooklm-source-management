@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 const createPopupDocument = () => {
     const elements = {
         'popup-badge': { textContent: '', hidden: false },
@@ -63,6 +66,20 @@ describe('popup launcher', () => {
         delete global.window;
         delete global.chrome;
         delete global.getMessage;
+    });
+
+    it('keeps the popup html ids that popup/index.js binds to', () => {
+        const popupHtml = fs.readFileSync(
+            path.join(__dirname, '../src/popup/popup.html'),
+            'utf8'
+        );
+
+        expect(popupHtml).toContain('id="popup-badge"');
+        expect(popupHtml).toContain('id="popup-title"');
+        expect(popupHtml).toContain('id="popup-body"');
+        expect(popupHtml).toContain('id="popup-note"');
+        expect(popupHtml).toContain('id="popup-detail"');
+        expect(popupHtml).toContain('id="popup-primary-btn"');
     });
 
     it('detects page context correctly', () => {

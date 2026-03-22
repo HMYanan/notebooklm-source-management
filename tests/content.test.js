@@ -74,6 +74,9 @@ const setupGlobalMocks = () => {
                 if (key === 'class') this.className = value;
                 this[key] = value;
             }),
+            removeAttribute: jest.fn(function removeAttribute(key) {
+                delete this.attributes[key];
+            }),
             getAttribute: jest.fn(function getAttribute(key) {
                 return Object.prototype.hasOwnProperty.call(this.attributes, key) ? this.attributes[key] : null;
             }),
@@ -176,7 +179,9 @@ const createMockSourceRow = ({
     href = null,
     ariaControls = null,
     loading = false,
-    imageCandidates = []
+    imageCandidates = [],
+    descendantCandidates = [],
+    nativeMoreButton = null
 }) => {
     const checkbox = {
         checked,
@@ -207,6 +212,7 @@ const createMockSourceRow = ({
     } : null;
 
     const row = {
+        children: [...imageCandidates, ...descendantCandidates],
         getAttribute: jest.fn((attr) => {
             if (attr === 'data-source-id') return stableToken;
             if (attr === 'href') return href;
@@ -217,6 +223,7 @@ const createMockSourceRow = ({
             if (selector.includes('source-title')) return titleEl;
             if (selector.includes('checkbox')) return checkbox;
             if (selector.includes('mat-icon')) return iconEl;
+            if (selector.includes('More options')) return nativeMoreButton;
             if (loading && selector.includes('[role="progressbar"]')) return { role: 'progressbar' };
             return null;
         }),
@@ -231,6 +238,22 @@ const createMockSourceRow = ({
                     Boolean(candidate.__computedStyle?.backgroundImage)
                 ));
             }
+            if (selector === '[style*="background:"]') {
+                return imageCandidates.filter((candidate) => Boolean(candidate.style?.background));
+            }
+            if (selector === '[style*="mask-image"]') {
+                return imageCandidates.filter((candidate) => (
+                    Boolean(candidate.style?.maskImage) ||
+                    Boolean(candidate.__computedStyle?.maskImage)
+                ));
+            }
+            if (selector === '[style*="webkit-mask-image"]') {
+                return imageCandidates.filter((candidate) => (
+                    Boolean(candidate.style?.webkitMaskImage) ||
+                    Boolean(candidate.__computedStyle?.webkitMaskImage)
+                ));
+            }
+            if (selector === '*') return descendantCandidates;
             return [];
         })
     };
@@ -242,19 +265,41 @@ const createMockImageCandidate = ({
     src = null,
     currentSrc = null,
     backgroundImage = '',
-    insideInteractive = false
-} = {}) => ({
+    background = '',
+    maskImage = '',
+    webkitMaskImage = '',
+    insideInteractive = false,
+    interactiveAncestor = null,
+    children = [],
+    shadowChildren = []
+} = {}) => {
+    const computedStyle = {};
+    if (backgroundImage) computedStyle.backgroundImage = backgroundImage;
+    if (background) computedStyle.background = background;
+    if (maskImage) computedStyle.maskImage = maskImage;
+    if (webkitMaskImage) computedStyle.webkitMaskImage = webkitMaskImage;
+
+    return ({
     tagName: src || currentSrc ? 'IMG' : 'DIV',
     src,
     currentSrc,
-    style: backgroundImage ? { backgroundImage } : {},
-    __computedStyle: backgroundImage ? { backgroundImage } : {},
+    children,
+    shadowRoot: shadowChildren.length > 0 ? { children: shadowChildren } : null,
+    style: {
+        ...(backgroundImage ? { backgroundImage } : {}),
+        ...(background ? { background } : {}),
+        ...(maskImage ? { maskImage } : {}),
+        ...(webkitMaskImage ? { webkitMaskImage } : {})
+    },
+    __computedStyle: computedStyle,
     getAttribute: jest.fn((attr) => {
         if (attr === 'src') return src;
         return null;
     }),
-    closest: jest.fn(() => (insideInteractive ? {} : null))
-});
+    closest: jest.fn(() => interactiveAncestor || (insideInteractive ? {} : null)),
+    contains: jest.fn((node) => children.includes(node) || shadowChildren.includes(node))
+    });
+};
 
 const createSearchUiMock = () => {
     const controls = {
@@ -1469,6 +1514,15 @@ describe('manager shell structure', () => {
             'sp-batch-action-btn'
         ]);
     });
+
+    it('keeps the toolbar controls defined as a single-row flex layout', () => {
+        jest.resetModules();
+        require('../src/content/content-style-text.js');
+
+        expect(global.NSM_CONTENT_STYLE_TEXT).toContain('.sp-controls {');
+        expect(global.NSM_CONTENT_STYLE_TEXT).toContain('display: flex;');
+        expect(global.NSM_CONTENT_STYLE_TEXT).toContain('flex-wrap: nowrap;');
+    });
 });
 
 describe('source icon handling', () => {
@@ -1500,6 +1554,21 @@ describe('source icon handling', () => {
         expect(descriptor.iconName).toBe('smart_display');
     });
 
+    it('does not discard a source icon when the source row itself is clickable', () => {
+        const sourceCandidate = createMockImageCandidate({
+            src: 'https://example.com/source.png',
+            interactiveAncestor: null
+        });
+        const sourceRow = createMockSourceRow({
+            title: 'Clickable Source',
+            imageCandidates: [sourceCandidate]
+        });
+        sourceCandidate.closest = jest.fn(() => sourceRow.row);
+
+        const descriptor = mod.createSourceDescriptor(sourceRow.row, new Map(), new Map());
+        expect(descriptor.iconImageUrl).toBe('https://example.com/source.png');
+    });
+
     it('extracts background image urls and resolves relative paths against the page', () => {
         const sourceRow = createMockSourceRow({
             title: 'Background Source',
@@ -1511,13 +1580,71 @@ describe('source icon handling', () => {
         expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://notebooklm.google.com/thumbs/source.png');
     });
 
+    it('extracts inline background shorthand urls through the configured fast path', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Background Shorthand Source',
+            imageCandidates: [
+                createMockImageCandidate({ background: 'center / cover url("/thumbs/background-source.png")' })
+            ]
+        });
+
+        expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://notebooklm.google.com/thumbs/background-source.png');
+    });
+
+    it('extracts mask image urls through the configured fast path', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Mask Source',
+            imageCandidates: [
+                createMockImageCandidate({ maskImage: 'url("https://example.com/mask-source.svg")' })
+            ]
+        });
+
+        expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://example.com/mask-source.svg');
+    });
+
+    it('extracts webkit mask image urls through the configured fast path', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Webkit Mask Source',
+            imageCandidates: [
+                createMockImageCandidate({ webkitMaskImage: 'url("https://example.com/webkit-mask-source.svg")' })
+            ]
+        });
+
+        expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://example.com/webkit-mask-source.svg');
+    });
+
+    it('falls back to descendant scanning for computed background images', () => {
+        const sourceRow = createMockSourceRow({
+            title: 'Computed Background Source',
+            descendantCandidates: [
+                createMockImageCandidate({ backgroundImage: 'url("https://example.com/computed.png")' })
+            ]
+        });
+
+        expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://example.com/computed.png');
+    });
+
+    it('finds image candidates inside open shadow roots', () => {
+        const shadowImage = createMockImageCandidate({ src: 'https://example.com/shadow.png' });
+        const shadowHost = createMockImageCandidate({ shadowChildren: [shadowImage] });
+        const sourceRow = createMockSourceRow({
+            title: 'Shadow Source',
+            descendantCandidates: [shadowHost]
+        });
+
+        expect(mod.extractSourceIconImageUrl(sourceRow.row)).toBe('https://example.com/shadow.png');
+    });
+
     it('ignores decorative images inside interactive controls', () => {
+        const nativeMoreButton = {
+            contains: jest.fn(() => true)
+        };
         const sourceRow = createMockSourceRow({
             title: 'Decorative Source',
+            nativeMoreButton,
             imageCandidates: [
                 createMockImageCandidate({
-                    src: 'https://example.com/ignore.png',
-                    insideInteractive: true
+                    src: 'https://example.com/ignore.png'
                 })
             ]
         });
@@ -1572,6 +1699,33 @@ describe('source icon handling', () => {
         expect(container.childNodes[0].tagName).toBe('MAT-ICON');
     });
 
+    it('falls back to glyphs when no source image is available', () => {
+        const source = {
+            iconImageUrl: null,
+            iconName: 'description',
+            iconColorClass: '',
+            isLoading: false
+        };
+
+        const fallbackIcon = mod.createSourceIconElement(source, false);
+        expect(fallbackIcon.tagName).toBe('MAT-ICON');
+    });
+
+    it('uses the localized untitled-source fallback when the native title is empty', () => {
+        global.chrome.i18n.getMessage = jest.fn((key) => (
+            key === 'ui_source_untitled' ? 'Localized Untitled Source' : key
+        ));
+
+        const sourceRow = createMockSourceRow({
+            title: '   ',
+            iconName: 'article'
+        });
+
+        const descriptor = mod.createSourceDescriptor(sourceRow.row, new Map(), new Map());
+
+        expect(descriptor.title).toBe('Localized Untitled Source');
+    });
+
     it('prefers loading and failed states over source images', () => {
         const loadingIcon = mod.createSourceIconElement({
             iconImageUrl: 'https://example.com/icon.png',
@@ -1588,6 +1742,80 @@ describe('source icon handling', () => {
 
         expect(loadingIcon.className).toBe('sp-spinner');
         expect(failedIcon.tagName).toBe('MAT-ICON');
+    });
+
+    it('keeps icon clicks routed to the source title when using image icons', () => {
+        const titleClick = jest.fn();
+        const source = {
+            key: 'source-1',
+            title: 'Image Source',
+            enabled: true,
+            isLoading: false,
+            isDisabled: false,
+            element: {
+                querySelector: jest.fn((selector) => (
+                    selector.includes('source-title') ? { click: titleClick } : null
+                ))
+            }
+        };
+        const checkbox = { checked: true };
+        const sourceRow = {
+            dataset: { sourceKey: 'source-1' },
+            querySelector: jest.fn(() => checkbox)
+        };
+
+        mod.sourcesByKey.set('source-1', source);
+
+        mod._handleInteractionForTest({
+            target: {
+                classList: { contains: jest.fn(() => false) },
+                closest: jest.fn((selector) => {
+                    if (selector === '.group-container') return null;
+                    if (selector === '.source-item') return sourceRow;
+                    if (selector === '.icon-container') return {};
+                    return null;
+                })
+            }
+        });
+
+        expect(titleClick).toHaveBeenCalledTimes(1);
+        expect(sourceRow.querySelector).not.toHaveBeenCalled();
+    });
+});
+
+describe('group title icon handling', () => {
+    let mod;
+
+    beforeEach(() => {
+        jest.resetModules();
+        setupGlobalMocks();
+        global.setTimeout = jest.fn();
+        global.clearTimeout = jest.fn();
+        mod = loadContentModule();
+        mod._resetState();
+    });
+
+    afterEach(teardownGlobalMocks);
+
+    it('renders the folder title affordance through the icon system', () => {
+        global.el = createTreeEl;
+
+        const icon = mod.createGroupTitleIconElement();
+
+        expect(icon).toEqual({
+            tag: 'span',
+            attrs: {
+                className: 'sp-group-title-icon',
+                'aria-hidden': 'true'
+            },
+            children: [
+                {
+                    tag: 'span',
+                    attrs: { className: 'google-symbols' },
+                    children: ['folder']
+                }
+            ]
+        });
     });
 });
 

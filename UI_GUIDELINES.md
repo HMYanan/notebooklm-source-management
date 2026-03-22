@@ -692,6 +692,36 @@ Rules:
 - Keep badges compact and quiet.
 - Badges are metadata, not actions.
 
+## 11.4 Tag color editor
+
+Classes:
+
+- `.sp-tag-color-group`
+- `.sp-tag-color-presets`
+- `.sp-tag-color-swatch`
+- `.sp-tag-color-trigger`
+- `.sp-tag-color-hex`
+
+Canonical style:
+
+- Lives inside the tag modal/editor flow, not as a standalone panel control
+- Uses the same compact density as inputs and list rows
+- Preset swatches are circular, low-noise, and rely on border/ring state instead of large motion
+- Custom color trigger reuses `.sp-button`
+- Hex input reuses `.sp-tag-input`
+
+Feedback:
+
+- Swatch hover uses the same shared panel easing as other controls
+- Active swatch uses the standard accent focus ring language
+- Text input focus uses the same soft accent focus ring as other modal inputs
+
+Rules:
+
+- New tag-color affordances should extend this editor, not introduce a second color-picker pattern
+- If color presets change, keep the interaction model the same: presets, custom trigger, and editable hex field
+- Do not use loud animations or independent color-picker chrome inside the modal
+
 ## 12. Menus, Overlays, and Modals
 
 ## 12.1 Source action menu
