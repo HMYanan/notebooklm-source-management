@@ -4,11 +4,16 @@
   "description": "Chrome extension that adds folder grouping, drag-and-drop, and batch controls to NotebookLM's source panel.\nChrome 扩展：为 NotebookLM 来源面板补充文件夹、拖拽与批量操作。",
   "main": "src/background/index.js",
   "scripts": {
-    "test": "jest",
+    "test": "jest --testPathIgnorePatterns=/tests/smoke/",
+    "test:unit": "jest --runInBand --testPathIgnorePatterns=/tests/smoke/",
+    "test:smoke": "playwright test",
     "verify": "npm test -- --runInBand",
+    "verify:full": "npm run test:unit && npm run test:smoke",
+    "playwright:install": "playwright install chromium",
     "package": "node scripts/package.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.53.1",
     "archiver": "^5.3.0",
     "jest": "^29.7.0"
   },

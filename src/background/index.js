@@ -3,7 +3,12 @@ const NOTEBOOKLM_URL_PATTERN = 'https://notebooklm.google.com/*';
 const NOTEBOOKLM_NOTEBOOK_PREFIX = 'https://notebooklm.google.com/notebook/';
 const ERROR_CODES = {
     INVALID_STORAGE_KEY: 'invalid_storage_key',
-    RUNTIME_FAILURE: 'runtime_failure'
+    RUNTIME_FAILURE: 'runtime_failure',
+    UNAUTHORIZED_SENDER: 'unauthorized_sender',
+    TABS_QUERY_FAILED: 'tabs_query_failed',
+    TAB_FOCUS_FAILED: 'tab_focus_failed',
+    WINDOW_FOCUS_FAILED: 'window_focus_failed',
+    TAB_CREATE_FAILED: 'tab_create_failed'
 };
 
 function isAuthorizedNotebookSender(sender) {
@@ -27,12 +32,17 @@ function isNotebookHomeTab(tab) {
 function focusTab(tab, action, sendResponse) {
     chrome.tabs.update(tab.id, { active: true }, (updatedTab) => {
         if (chrome.runtime.lastError) {
-            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
+            sendResponse({ success: false, errorCode: ERROR_CODES.TAB_FOCUS_FAILED });
             return;
         }
 
         if (chrome.windows && typeof chrome.windows.update === 'function') {
             chrome.windows.update(tab.windowId, { focused: true }, () => {
+                if (chrome.runtime.lastError) {
+                    sendResponse({ success: false, errorCode: ERROR_CODES.WINDOW_FOCUS_FAILED });
+                    return;
+                }
+
                 sendResponse({
                     success: true,
                     action,
@@ -55,7 +65,7 @@ function focusTab(tab, action, sendResponse) {
 function openNewNotebookLmHome(sendResponse) {
     chrome.tabs.create({ url: NOTEBOOKLM_HOME_URL }, (tab) => {
         if (chrome.runtime.lastError) {
-            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
+            sendResponse({ success: false, errorCode: ERROR_CODES.TAB_CREATE_FAILED });
             return;
         }
 
@@ -74,7 +84,7 @@ function openOrFocusNotebookLm(request, sendResponse) {
 
     chrome.tabs.query({ url: NOTEBOOKLM_URL_PATTERN }, (tabs) => {
         if (chrome.runtime.lastError) {
-            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
+            sendResponse({ success: false, errorCode: ERROR_CODES.TABS_QUERY_FAILED });
             return;
         }
 
@@ -116,6 +126,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (!isAuthorizedNotebookSender(sender)) {
         console.warn('NotebookLM Source Management: Received message from unauthorized sender:', sender);
+        sendResponse({ success: false, errorCode: ERROR_CODES.UNAUTHORIZED_SENDER });
         return;
     }
 
@@ -144,7 +155,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     chrome.storage.local.get(request.key, (data) => {
-        sendResponse({ success: true, data: data[request.key] || null });
+        if (chrome.runtime.lastError) {
+            console.error('NotebookLM Source Management background load error:', chrome.runtime.lastError);
+            sendResponse({ success: false, errorCode: ERROR_CODES.RUNTIME_FAILURE });
+            return;
+        }
+
+        const storedData = data && typeof data === 'object' ? data[request.key] : null;
+        sendResponse({ success: true, data: storedData ?? null });
     });
     return true;
 });

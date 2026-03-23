@@ -729,7 +729,13 @@ describe('executeBatchDelete', () => {
         const disconnectedElement = {
             querySelector: jest.fn(() => null)
         };
-        mod.sourcesByKey.set('key2', { key: 'key2', title: 'Test Source', element: disconnectedElement, isDisabled: false });
+        mod.sourcesByKey.set('key2', {
+            key: 'key2',
+            title: 'Test Source',
+            fingerprint: 'test source||article',
+            element: disconnectedElement,
+            isDisabled: false
+        });
         global.document.body.contains = jest.fn(() => false);
 
         await mod.executeBatchDelete();
@@ -897,6 +903,25 @@ describe('saveState', () => {
             { type: 'SAVE_STATE', key: expectedKey, data: expectedPersistableState },
             expect.any(Function)
         );
+    });
+
+    it('logs structured background save failures without throwing', () => {
+        seedPersistedState();
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            cb({ success: false, errorCode: 'runtime_failure' });
+        });
+
+        expect(() => mod.saveState()).not.toThrow();
+        jest.advanceTimersByTime(1500);
+
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            'NotebookLM Source Management: SAVE_STATE rejected by background:',
+            'runtime_failure'
+        );
+
+        consoleWarnSpy.mockRestore();
     });
 
     it('handles potential errors during debouncedStorageSet', () => {
@@ -1112,6 +1137,56 @@ describe('loadState', () => {
 
         expect(callback).toHaveBeenCalledWith(null);
         global.chrome.runtime.lastError = null;
+    });
+
+    it('treats structured background failures as null state', () => {
+        const callback = jest.fn();
+        mod._setProjectId('test-project');
+
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            cb({ success: false, errorCode: 'runtime_failure' });
+        });
+
+        mod.loadState(callback);
+
+        expect(callback).toHaveBeenCalledWith(null);
+        expect(mod._getPendingStorageUpgrade()).toBe(false);
+    });
+
+    it('ignores late responses after the manager instance is torn down', () => {
+        const callback = jest.fn();
+        const container = { style: {} };
+        let responseCallback = null;
+
+        mod._setProjectId('test-project');
+        mod._setShadowRootForTest({
+            host: { isConnected: true },
+            querySelector: jest.fn((selector) => (selector === '.sp-container' ? container : null))
+        });
+
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => {
+            responseCallback = cb;
+        });
+
+        mod.loadState(callback);
+        mod._resetState();
+
+        responseCallback({
+            data: {
+                schemaVersion: 3,
+                groups: [],
+                groupsById: {},
+                ungrouped: [],
+                sourceStateById: {},
+                customHeight: 420,
+                tagsById: {},
+                tagOrder: [],
+                sourceTagsById: {}
+            }
+        });
+
+        expect(callback).not.toHaveBeenCalled();
+        expect(container.style.height).toBeUndefined();
     });
 });
 
@@ -2505,32 +2580,29 @@ describe('syncSourceToPage', () => {
 
     it('recovers detached checkboxes via findFreshCheckbox and drains the queue', () => {
         const staleCheckbox = { checked: false, click: jest.fn() };
-        const freshCheckbox = { checked: false, click: jest.fn(), closest: jest.fn(() => freshRow) };
-        const titleEl = { textContent: 'Synced Source' };
-        const freshRow = {
-            querySelector: jest.fn((selector) => {
-                if (mod.DEPS.title.includes(selector)) return titleEl;
-                if (mod.DEPS.checkbox.includes(selector)) return freshCheckbox;
-                return null;
-            })
+        const staleRow = {
+            querySelector: jest.fn(() => staleCheckbox)
         };
-        const source = {
-            key: 'source_sync',
+        const freshRow = createMockSourceRow({
             title: 'Synced Source',
-            element: {
-                querySelector: jest.fn(() => staleCheckbox)
-            }
+            stableToken: 'doc-sync',
+            checked: false
+        });
+        const descriptor = mod.createSourceDescriptor(freshRow.row, new Map(), new Map());
+        const source = {
+            ...descriptor,
+            element: staleRow
         };
 
-        mod.sourcesByKey.set('source_sync', source);
+        mod.sourcesByKey.set(descriptor.key, source);
         global.document.body.contains = jest.fn((node) => node !== staleCheckbox);
         global.document.querySelectorAll = jest.fn((selector) => (
-            mod.DEPS.row.includes(selector) ? [freshRow] : []
+            mod.DEPS.row.includes(selector) ? [freshRow.row] : []
         ));
 
         mod.syncSourceToPage(source, true);
 
-        expect(freshCheckbox.click).toHaveBeenCalledTimes(1);
+        expect(freshRow.checkbox.click).toHaveBeenCalledTimes(1);
         expect(staleCheckbox.click).not.toHaveBeenCalled();
         expect(mod._getClickQueueLength()).toBe(0);
         expect(mod._getIsSyncingState()).toBe(false);
@@ -2565,55 +2637,83 @@ describe('findFreshCheckbox', () => {
     });
 
     it('populates freshRowCache and finds the correct checkbox', () => {
-        const sourceTitle = 'Test Document';
-        mod.sourcesByKey.set('source1', { key: 'source1', title: sourceTitle });
-
-        const mockCheckbox = { type: 'checkbox' };
-        const mockTitleEl = { textContent: `  ${sourceTitle}  ` };
-        const mockRow = {
-            querySelector: jest.fn(sel => {
-                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
-                if (mod.DEPS.checkbox.includes(sel)) return mockCheckbox;
-                return null;
-            })
-        };
+        const mockRow = createMockSourceRow({
+            title: 'Test Document',
+            stableToken: 'doc-1',
+            checked: true
+        });
+        const descriptor = mod.createSourceDescriptor(mockRow.row, new Map(), new Map());
+        mod.sourcesByKey.set(descriptor.key, descriptor);
 
         global.document.querySelectorAll = jest.fn(sel => {
             if (mod.DEPS.row.includes(sel)) {
-                return [mockRow];
+                return [mockRow.row];
             }
             return [];
         });
 
-        const result = mod.findFreshCheckbox('source1');
+        const result = mod.findFreshCheckbox(descriptor.key);
 
-        expect(result).toBe(mockCheckbox);
+        expect(result).toBe(mockRow.checkbox);
         expect(mod._getFreshRowCache()).toBeInstanceOf(Map);
-        expect(mod._getFreshRowCache().get(sourceTitle)).toBe(mockRow);
+        expect(mod._getFreshRowCache().get(descriptor.key)).toEqual(expect.objectContaining({
+            row: mockRow.row,
+            checkbox: mockRow.checkbox,
+            identity: expect.objectContaining({
+                stableToken: descriptor.stableToken
+            })
+        }));
         expect(global.queueMicrotask).not.toHaveBeenCalled();
     });
 
-    it('returns null if no fresh row is found matching the title', () => {
-        mod.sourcesByKey.set('source2', { key: 'source2', title: 'Looking For This' });
-
-        const mockTitleEl = { textContent: 'Completely Different Title' };
-        const mockRow = {
-            querySelector: jest.fn(sel => {
-                if (mod.DEPS.title.includes(sel)) return mockTitleEl;
-                return null;
-            })
-        };
+    it('returns null if no unique identity match exists', () => {
+        const mockRowA = createMockSourceRow({
+            title: 'Looking For This',
+            stableToken: null,
+            checked: true
+        });
+        const mockRowB = createMockSourceRow({
+            title: 'Looking For This',
+            stableToken: null,
+            checked: false
+        });
+        const descriptor = mod.createSourceDescriptor(mockRowA.row, new Map(), new Map());
+        mod.sourcesByKey.set(descriptor.key, descriptor);
 
         global.document.querySelectorAll = jest.fn(sel => {
             if (mod.DEPS.row.includes(sel)) {
-                return [mockRow];
+                return [mockRowA.row, mockRowB.row];
             }
             return [];
         });
 
-        const result = mod.findFreshCheckbox('source2');
+        const result = mod.findFreshCheckbox(descriptor.key);
 
         expect(result).toBeNull();
+    });
+
+    it('does not reuse ambiguous fingerprint matches', () => {
+        const mockRowA = createMockSourceRow({
+            title: 'Duplicate Source',
+            stableToken: null,
+            checked: true
+        });
+        const mockRowB = createMockSourceRow({
+            title: 'Duplicate Source',
+            stableToken: null,
+            checked: false
+        });
+        const descriptor = mod.createSourceDescriptor(mockRowA.row, new Map(), new Map());
+        mod.sourcesByKey.set(descriptor.key, descriptor);
+
+        global.document.querySelectorAll = jest.fn(sel => {
+            if (mod.DEPS.row.includes(sel)) {
+                return [mockRowA.row, mockRowB.row];
+            }
+            return [];
+        });
+
+        expect(mod.findFreshCheckbox(descriptor.key)).toBeNull();
     });
 
     it('clears freshRowCache when mutation observer triggers', () => {
@@ -3063,20 +3163,28 @@ describe('manager launcher messaging', () => {
     });
 
     it('falls back to reload only after repeated route recovery failures', async () => {
-        global.setTimeout = (cb) => {
+        const timeoutDelays = [];
+        global.setTimeout = jest.fn((cb, delay) => {
+            timeoutDelays.push(delay);
             cb();
-            return 1;
-        };
+            return timeoutDelays.length;
+        });
         mod._setProjectId('old-project');
         global.document.querySelector = jest.fn(() => null);
         global.window.location.pathname = '/notebook/new-project';
+        global.document.visibilityState = 'visible';
 
         mod.handleRouteChanged();
 
         await Promise.resolve();
         await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
 
         expect(global.window.location.reload).toHaveBeenCalledTimes(1);
+        expect(timeoutDelays.length).toBeGreaterThan(0);
+        expect(timeoutDelays.every((delay) => delay === 400)).toBe(true);
     });
 
     it('tears down without reloading when the user leaves a notebook route', () => {

@@ -26,8 +26,8 @@
         SOURCE_ICON_SELECTOR: DEPS.icon[0],
         STORAGE_SCHEMA_VERSION: 3,
         GLOBAL_OVERLAY_STYLE_ID: 'sp-global-glassmorphism',
-        ROUTE_REINIT_MAX_ATTEMPTS: 2,
-        ROUTE_REINIT_RETRY_DELAY_MS: 250
+        ROUTE_REINIT_MAX_ATTEMPTS: 4,
+        ROUTE_REINIT_RETRY_DELAY_MS: 400
     };
 
     globalThis.NSM_CONTENT_CONFIG = contentConfig;

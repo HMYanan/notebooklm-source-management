@@ -83,6 +83,15 @@
     "popup_reason_manager_not_ready": {
         "message": "The manager is still loading on this page."
     },
+    "popup_reason_manager_unreachable": {
+        "message": "NotebookLM is open, but the manager could not be reached in this tab."
+    },
+    "popup_reason_tab_message_failed": {
+        "message": "The manager tab responded with an unexpected message failure."
+    },
+    "popup_reason_tabs_query_failed": {
+        "message": "Chrome could not read the current NotebookLM tabs right now."
+    },
     "popup_reason_notebook_missing": {
         "message": "Open a NotebookLM notebook page to access the source manager."
     },

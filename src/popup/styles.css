@@ -3,7 +3,7 @@
 }
 
 :root {
-    color-scheme: light;
+    color-scheme: dark;
     --popup-font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     --popup-width: 340px;
     --popup-padding: 20px;
@@ -11,33 +11,33 @@
     --popup-radius-surface: 14px;
     --popup-radius-icon: 16px;
     --popup-panel-atmosphere:
-        radial-gradient(circle at 0% 0%, rgba(66, 133, 244, 0.22), transparent 42%),
-        radial-gradient(circle at 100% 100%, rgba(141, 177, 255, 0.18), transparent 48%),
-        linear-gradient(180deg, #f7f9fc 0%, #eef3fb 100%);
-    --popup-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.82) 100%);
-    --popup-note-bg: rgba(255, 255, 255, 0.84);
-    --popup-detail-bg: linear-gradient(180deg, rgba(255, 248, 242, 0.96) 0%, rgba(255, 242, 231, 0.92) 100%);
-    --popup-border: rgba(53, 85, 140, 0.12);
-    --popup-border-strong: rgba(53, 85, 140, 0.18);
-    --popup-border-warning: rgba(198, 89, 17, 0.18);
-    --popup-text-primary: #11203b;
-    --popup-text-secondary: #31476f;
-    --popup-text-muted: #30435f;
-    --popup-text-warning: #8b4a17;
-    --popup-eyebrow-bg: rgba(53, 85, 140, 0.08);
-    --popup-eyebrow-text: #35558c;
-    --popup-button-bg: linear-gradient(135deg, #1a73e8 0%, #0c52b8 100%);
+        radial-gradient(circle at 0% 0%, rgba(72, 128, 255, 0.34), transparent 40%),
+        radial-gradient(circle at 100% 100%, rgba(63, 183, 255, 0.16), transparent 46%),
+        linear-gradient(180deg, #171b23 0%, #0f131a 100%);
+    --popup-panel-bg: linear-gradient(180deg, rgba(21, 25, 35, 0.96) 0%, rgba(14, 18, 27, 0.94) 100%);
+    --popup-note-bg: rgba(255, 255, 255, 0.04);
+    --popup-detail-bg: linear-gradient(180deg, rgba(67, 38, 13, 0.9) 0%, rgba(42, 24, 9, 0.95) 100%);
+    --popup-border: rgba(132, 152, 202, 0.16);
+    --popup-border-strong: rgba(132, 152, 202, 0.24);
+    --popup-border-warning: rgba(255, 163, 92, 0.24);
+    --popup-text-primary: #eef3ff;
+    --popup-text-secondary: #c2cde1;
+    --popup-text-muted: #aab7cd;
+    --popup-text-warning: #ffd3a5;
+    --popup-eyebrow-bg: rgba(82, 122, 217, 0.2);
+    --popup-eyebrow-text: #c0d3ff;
+    --popup-button-bg: linear-gradient(135deg, #2f84ff 0%, #1554c6 100%);
     --popup-button-text: #fff;
-    --popup-button-shadow: 0 16px 34px rgba(26, 115, 232, 0.28);
-    --popup-button-shadow-hover: 0 18px 38px rgba(26, 115, 232, 0.32);
-    --popup-button-shadow-disabled: 0 10px 22px rgba(26, 115, 232, 0.2);
-    --popup-button-focus-ring: 0 0 0 4px rgba(26, 115, 232, 0.18);
-    --popup-button-sheen: linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.2) 50%, transparent 82%);
+    --popup-button-shadow: 0 18px 36px rgba(11, 53, 133, 0.42);
+    --popup-button-shadow-hover: 0 20px 40px rgba(11, 53, 133, 0.5);
+    --popup-button-shadow-disabled: 0 10px 22px rgba(11, 53, 133, 0.24);
+    --popup-button-focus-ring: 0 0 0 4px rgba(47, 132, 255, 0.24);
+    --popup-button-sheen: linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.14) 50%, transparent 82%);
     --popup-panel-shadow:
-        0 20px 44px rgba(17, 32, 59, 0.12),
-        inset 0 1px 0 rgba(255, 255, 255, 0.62);
-    --popup-icon-shadow: 0 16px 36px rgba(17, 32, 59, 0.14);
-    --popup-surface-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        0 24px 60px rgba(0, 0, 0, 0.42),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --popup-icon-shadow: 0 16px 32px rgba(0, 0, 0, 0.32);
+    --popup-surface-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
     --popup-ease: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
@@ -83,7 +83,7 @@ body {
     position: absolute;
     inset: 0 0 auto;
     height: 140px;
-    background: linear-gradient(135deg, rgba(26, 115, 232, 0.12), rgba(26, 115, 232, 0));
+    background: linear-gradient(135deg, rgba(47, 132, 255, 0.16), rgba(47, 132, 255, 0));
     pointer-events: none;
 }
 
@@ -111,8 +111,8 @@ body {
     height: 56px;
     padding: 6px;
     border-radius: var(--popup-radius-icon);
-    border: 1px solid rgba(53, 85, 140, 0.1);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(233, 239, 249, 0.82) 100%);
+    border: 1px solid var(--popup-border);
+    background: linear-gradient(180deg, rgba(34, 42, 58, 0.92) 0%, rgba(22, 28, 40, 0.9) 100%);
     box-shadow: var(--popup-icon-shadow);
 }
 
@@ -130,7 +130,7 @@ body {
     min-height: 28px;
     margin: 0;
     padding: 0 11px;
-    border: 1px solid rgba(53, 85, 140, 0.1);
+    border: 1px solid var(--popup-border-strong);
     border-radius: 999px;
     background: var(--popup-eyebrow-bg);
     color: var(--popup-eyebrow-text);

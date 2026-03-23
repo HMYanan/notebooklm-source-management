@@ -324,11 +324,14 @@
         return duplicateIndex === 0 ? baseKey : `${baseKey}_${duplicateIndex}`;
     }
 
-    function createSourceDescriptor(sourceElement, seenSourceIds, seenLegacyKeys) {
+    function extractSourceIdentitySnapshot(sourceElement) {
+        if (!sourceElement) return null;
+
         const titleEl = findElement(DEPS.title, sourceElement);
         const checkbox = findElement(DEPS.checkbox, sourceElement);
-        const ariaLabel = checkbox ? (checkbox.getAttribute('aria-label') || '') : '';
-        const keyTitle = ariaLabel || titleEl?.textContent || '';
+        const ariaLabel = checkbox && typeof checkbox.getAttribute === 'function'
+            ? (checkbox.getAttribute('aria-label') || '')
+            : '';
         const title = titleEl?.textContent.trim() || getMessage('ui_source_untitled');
         const nativeMoreButton = findElement(DEPS.moreBtn, sourceElement);
         const nativeIconContext = {
@@ -358,14 +361,46 @@
             }
         }
 
-        const iconColorClass = Array.from(iconEl?.classList || []).find((className) => className.endsWith('-icon-color')) || '';
-        const iconImageUrl = extractSourceIconImageUrl(sourceElement, nativeIconContext);
         const stableToken = extractSourceStableToken(sourceElement);
         const fingerprint = [
             normalizeSourceText(title),
             normalizeSourceText(ariaLabel),
             normalizeSourceText(iconName)
         ].join('|');
+
+        return {
+            titleEl,
+            checkbox,
+            nativeMoreButton,
+            iconEl,
+            iconName,
+            title,
+            normalizedTitle: normalizeSourceText(title),
+            ariaLabel,
+            stableToken,
+            fingerprint,
+            nativeIconContext
+        };
+    }
+
+    function createSourceDescriptor(sourceElement, seenSourceIds, seenLegacyKeys) {
+        const identity = extractSourceIdentitySnapshot(sourceElement);
+        const {
+            titleEl,
+            checkbox,
+            ariaLabel,
+            title,
+            normalizedTitle,
+            stableToken,
+            fingerprint,
+            iconName,
+            iconEl,
+            nativeIconContext
+        } = identity || {};
+        const keyTitle = ariaLabel || titleEl?.textContent || '';
+
+        const iconColorClass = Array.from(iconEl?.classList || []).find((className) => className.endsWith('-icon-color')) || '';
+        const iconImageUrl = extractSourceIconImageUrl(sourceElement, nativeIconContext);
         const identityType = stableToken ? 'stable-token' : 'fingerprint';
         const sourceIdBase = stableToken
             ? `source_id_${stableToken}`
@@ -376,7 +411,6 @@
         const legacyKey = buildLegacySourceKey(keyTitle, seenLegacyKeys);
         const isLoading = Boolean(sourceElement.querySelector('[role="progressbar"], mat-spinner, svg animateTransform'));
         const isDisabled = !checkbox || checkbox.disabled || isLoading;
-        const normalizedTitle = normalizeSourceText(title);
 
         return {
             key,
@@ -385,6 +419,7 @@
             normalizedTitle,
             lowercaseTitle: normalizedTitle,
             ariaLabel,
+            stableToken,
             fingerprint,
             identityType,
             element: sourceElement,
@@ -399,6 +434,7 @@
 
     const sourceDescriptorHelpers = {
         createSourceDescriptor,
+        extractSourceIdentitySnapshot,
         extractSourceIconImageUrl,
         extractSourceStableToken,
         extractTokenFromUrl,

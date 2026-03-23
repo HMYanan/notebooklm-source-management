@@ -83,7 +83,10 @@ describe('background.js message listener', () => {
             invalidSender
         );
         expect(global.chrome.storage.local.set).not.toHaveBeenCalled();
-        expect(mockSendResponse).not.toHaveBeenCalled();
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'unauthorized_sender'
+        });
     });
 
     it('should handle SAVE_STATE message successfully', () => {
@@ -171,6 +174,35 @@ describe('background.js message listener', () => {
         expect(result).toBe(true); // Should return true to keep channel open
     });
 
+    it('should reject LOAD_STATE when storage get fails', () => {
+        const request = {
+            type: 'LOAD_STATE',
+            key: 'sourcesPlusState_123'
+        };
+
+        global.chrome.storage.local.get.mockImplementationOnce((key, cb) => {
+            global.chrome.runtime.lastError = { message: 'Storage unavailable' };
+            cb({});
+            global.chrome.runtime.lastError = undefined;
+        });
+
+        const result = listener(request, validSender, mockSendResponse);
+
+        expect(global.chrome.storage.local.get).toHaveBeenCalledWith(
+            'sourcesPlusState_123',
+            expect.any(Function)
+        );
+        expect(console.error).toHaveBeenCalledWith(
+            'NotebookLM Source Management background load error:',
+            { message: 'Storage unavailable' }
+        );
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'runtime_failure'
+        });
+        expect(result).toBe(true);
+    });
+
     it('should reject LOAD_STATE with invalid key', () => {
         const request = {
             type: 'LOAD_STATE',
@@ -188,6 +220,25 @@ describe('background.js message listener', () => {
             success: false,
             errorCode: 'invalid_storage_key'
         });
+    });
+
+    it('should reject LOAD_STATE when sender is unauthorized', () => {
+        const invalidSender = {
+            tab: {
+                url: 'https://example.com'
+            }
+        };
+
+        listener({
+            type: 'LOAD_STATE',
+            key: 'sourcesPlusState_123'
+        }, invalidSender, mockSendResponse);
+
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'unauthorized_sender'
+        });
+        expect(global.chrome.storage.local.get).not.toHaveBeenCalled();
     });
 
     it('should handle LOAD_STATE message returning null when data not found', () => {
@@ -242,6 +293,102 @@ describe('background.js message listener', () => {
             action: 'focused-existing-notebook',
             tabId: 44,
             url: 'https://notebooklm.google.com/notebook/123'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should surface a tabs query failure when launcher requests cannot read tabs', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            global.chrome.runtime.lastError = { message: 'tabs query failed' };
+            cb([]);
+            global.chrome.runtime.lastError = undefined;
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 12,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'tabs_query_failed'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should surface a tab focus failure when the active tab cannot be focused', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([
+                { id: 21, url: 'https://notebooklm.google.com/notebook/abc', windowId: 5 }
+            ]);
+        });
+        global.chrome.tabs.update.mockImplementationOnce((tabId, updateInfo, cb) => {
+            global.chrome.runtime.lastError = { message: 'tab focus failed' };
+            cb({ id: tabId, url: 'https://notebooklm.google.com/notebook/abc' });
+            global.chrome.runtime.lastError = undefined;
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 12,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'tab_focus_failed'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should surface a window focus failure when the tab is activated but the window cannot focus', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([
+                { id: 21, url: 'https://notebooklm.google.com/notebook/abc', windowId: 5 }
+            ]);
+        });
+        global.chrome.tabs.update.mockImplementationOnce((tabId, updateInfo, cb) => {
+            cb({ id: tabId, url: 'https://notebooklm.google.com/notebook/abc' });
+        });
+        global.chrome.windows.update.mockImplementationOnce((windowId, updateInfo, cb) => {
+            global.chrome.runtime.lastError = { message: 'window focus failed' };
+            cb();
+            global.chrome.runtime.lastError = undefined;
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 12,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'window_focus_failed'
+        });
+        expect(result).toBe(true);
+    });
+
+    it('should surface a tab create failure when NotebookLM cannot open a home tab', () => {
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            cb([]);
+        });
+        global.chrome.tabs.create.mockImplementationOnce((createProperties, cb) => {
+            global.chrome.runtime.lastError = { message: 'tab create failed' };
+            cb(null);
+            global.chrome.runtime.lastError = undefined;
+        });
+
+        const result = listener({
+            type: 'OPEN_OR_FOCUS_NOTEBOOKLM',
+            currentTabId: 12,
+            currentContext: 'external'
+        }, {}, mockSendResponse);
+
+        expect(mockSendResponse).toHaveBeenCalledWith({
+            success: false,
+            errorCode: 'tab_create_failed'
         });
         expect(result).toBe(true);
     });

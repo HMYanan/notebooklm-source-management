@@ -173,6 +173,34 @@ describe('popup launcher', () => {
         expect(global.chrome.tabs.reload).toHaveBeenCalledWith(7, {}, expect.any(Function));
     });
 
+    it('renders a manager unreachable message when notebook status cannot be read', async () => {
+        global.chrome.tabs.sendMessage.mockImplementationOnce((tabId, message, cb) => {
+            global.chrome.runtime.lastError = { message: 'Receiving end does not exist.' };
+            cb();
+            global.chrome.runtime.lastError = null;
+        });
+
+        const result = await popup.initializePopup(popupDocument);
+
+        expect(result.state.action).toBe('refresh-tab');
+        expect(popupDocument.elements['popup-detail'].hidden).toBe(false);
+        expect(popupDocument.elements['popup-detail'].textContent).toBe('popup_reason_manager_unreachable');
+    });
+
+    it('renders a tab message failed message when notebook status returns an unexpected messaging error', async () => {
+        global.chrome.tabs.sendMessage.mockImplementationOnce((tabId, message, cb) => {
+            global.chrome.runtime.lastError = { message: 'Unexpected tab messaging failure' };
+            cb();
+            global.chrome.runtime.lastError = null;
+        });
+
+        const result = await popup.initializePopup(popupDocument);
+
+        expect(result.state.action).toBe('refresh-tab');
+        expect(popupDocument.elements['popup-detail'].hidden).toBe(false);
+        expect(popupDocument.elements['popup-detail'].textContent).toBe('popup_reason_tab_message_failed');
+    });
+
     it('opens NotebookLM from non-notebook pages', async () => {
         activeTab = { id: 4, url: 'https://example.com' };
         notebookLmTabs = [{ id: 11, url: 'https://notebooklm.google.com/notebook/xyz' }];
@@ -217,7 +245,37 @@ describe('popup launcher', () => {
         );
     });
 
+    it('renders a tabs query failure state when the launcher cannot read tabs', async () => {
+        activeTab = { id: 4, url: 'https://example.com' };
+        global.chrome.tabs.query.mockImplementationOnce((queryInfo, cb) => {
+            global.chrome.runtime.lastError = { message: 'Query failed' };
+            cb([]);
+            global.chrome.runtime.lastError = null;
+        });
+
+        await popup.initializePopup(popupDocument);
+
+        expect(popupDocument.elements['popup-detail'].hidden).toBe(false);
+        expect(popupDocument.elements['popup-detail'].textContent).toBe('popup_reason_tabs_query_failed');
+        expect(popupDocument.elements['popup-primary-btn'].textContent).toBe('popup_cta_go_to_notebooklm');
+    });
+
     it('maps background error codes to localized popup messages', async () => {
+        activeTab = { id: 4, url: 'https://example.com' };
+        notebookLmTabs = [];
+        global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => cb({
+            success: false,
+            errorCode: 'tabs_query_failed'
+        }));
+
+        await popup.initializePopup(popupDocument);
+        await popupDocument.elements['popup-primary-btn'].onclick();
+
+        expect(popupDocument.elements['popup-detail'].hidden).toBe(false);
+        expect(popupDocument.elements['popup-detail'].textContent).toBe('popup_reason_tabs_query_failed');
+    });
+
+    it('maps invalid storage key errors to localized popup messages', async () => {
         activeTab = { id: 4, url: 'https://example.com' };
         notebookLmTabs = [];
         global.chrome.runtime.sendMessage.mockImplementationOnce((message, cb) => cb({

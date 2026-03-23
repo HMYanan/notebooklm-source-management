@@ -5,7 +5,8 @@
     const NOTEBOOKLM_NOTEBOOK_PREFIX = 'https://notebooklm.google.com/notebook/';
     const ERROR_MESSAGE_KEYS = {
         invalid_storage_key: 'popup_error_invalid_storage_key',
-        runtime_failure: 'popup_reason_generic'
+        runtime_failure: 'popup_reason_generic',
+        tabs_query_failed: 'popup_reason_tabs_query_failed'
     };
 
     function getUiLanguage() {
@@ -59,6 +60,9 @@
             source_panel_missing: 'popup_reason_source_panel_missing',
             panel_header_missing: 'popup_reason_panel_header_missing',
             manager_not_ready: 'popup_reason_manager_not_ready',
+            manager_unreachable: 'popup_reason_manager_unreachable',
+            tab_message_failed: 'popup_reason_tab_message_failed',
+            tabs_query_failed: 'popup_reason_tabs_query_failed',
             notebook_missing: 'popup_reason_notebook_missing',
             not_on_notebook_page: 'popup_reason_notebook_missing'
         };
@@ -133,10 +137,12 @@
     }
 
     function queryNotebookLmTabs() {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             chrome.tabs.query({ url: `${NOTEBOOKLM_HOME_URL}*` }, (tabs) => {
                 if (chrome.runtime.lastError) {
-                    resolve([]);
+                    const error = new Error(chrome.runtime.lastError.message || 'NotebookLM tabs query failed');
+                    error.errorCode = 'tabs_query_failed';
+                    reject(error);
                     return;
                 }
 
@@ -146,10 +152,12 @@
     }
 
     function queryActiveTab() {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 if (chrome.runtime.lastError) {
-                    resolve(null);
+                    const error = new Error(chrome.runtime.lastError.message || 'Active tab query failed');
+                    error.errorCode = 'tabs_query_failed';
+                    reject(error);
                     return;
                 }
 
@@ -169,6 +177,15 @@
                 resolve(response || null);
             });
         });
+    }
+
+    function isReceivingEndError(error) {
+        const message = String(error && error.message ? error.message : '');
+        return /Receiving end does not exist|Could not establish connection|message port closed before a response was received/i.test(message);
+    }
+
+    function classifyTabMessageError(error) {
+        return isReceivingEndError(error) ? 'manager_unreachable' : 'tab_message_failed';
     }
 
     function sendRuntimeMessage(message) {
@@ -206,7 +223,7 @@
             const response = await sendMessageToTab(tab.id, { type: 'GET_MANAGER_STATUS' });
             return response || { ready: false, reason: 'manager_not_ready' };
         } catch (error) {
-            return { ready: false, reason: 'manager_not_ready' };
+            return { ready: false, reason: classifyTabMessageError(error) };
         }
     }
 
@@ -253,6 +270,17 @@
         return getMessage('popup_reason_generic');
     }
 
+    function buildTabsQueryFailureState() {
+        return {
+            badgeKey: 'popup_badge_attention',
+            titleKey: 'popup_title_external_page',
+            bodyKey: 'popup_body_external_page',
+            buttonKey: 'popup_cta_go_to_notebooklm',
+            detailKey: 'popup_reason_tabs_query_failed',
+            action: 'open-notebooklm'
+        };
+    }
+
     async function performPrimaryAction(state, tab, launchContext) {
         if (state.action === 'focus-manager') {
             return sendMessageToTab(tab.id, { type: 'FOCUS_MANAGER' });
@@ -273,12 +301,32 @@
     async function initializePopup(doc = document) {
         applyDocumentLocalization(doc);
         const elements = getElements(doc);
-        const activeTab = await queryActiveTab();
+        let activeTab = null;
+        let activeTabQueryFailed = false;
+        let notebookTabsQueryFailed = false;
+
+        try {
+            activeTab = await queryActiveTab();
+        } catch (error) {
+            activeTabQueryFailed = true;
+        }
+
         const context = getPageContext(activeTab && activeTab.url);
-        const notebookLmTabs = context === 'notebook' ? [] : await queryNotebookLmTabs();
+        let notebookLmTabs = [];
+
+        if (context !== 'notebook') {
+            try {
+                notebookLmTabs = await queryNotebookLmTabs();
+            } catch (error) {
+                notebookTabsQueryFailed = true;
+            }
+        }
+
         const launchContext = context === 'notebook' ? null : deriveLaunchContext(activeTab, notebookLmTabs);
         const managerStatus = context === 'notebook' ? await inspectManagerStatus(activeTab) : null;
-        const state = buildPopupState({ context, managerStatus, launchContext });
+        const state = (activeTabQueryFailed || notebookTabsQueryFailed)
+            ? buildTabsQueryFailureState()
+            : buildPopupState({ context, managerStatus, launchContext });
 
         renderPopup(doc, state);
 
@@ -299,7 +347,9 @@
                 }
             } catch (error) {
                 elements.detail.hidden = false;
-                elements.detail.textContent = getMessage('popup_reason_generic');
+                elements.detail.textContent = resolveErrorMessage({
+                    errorCode: error && error.errorCode ? error.errorCode : 'runtime_failure'
+                });
                 elements.primaryButton.disabled = false;
             }
         };
@@ -322,6 +372,7 @@
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             buildPopupState,
+            buildTabsQueryFailureState,
             deriveLaunchContext,
             getPageContext,
             getReasonMessageKey,
@@ -333,7 +384,9 @@
             queryNotebookLmTabs,
             renderPopup,
             applyDocumentLocalization,
-            resolveErrorMessage
+            resolveErrorMessage,
+            isReceivingEndError,
+            classifyTabMessageError
         };
     }
 })();

@@ -83,6 +83,15 @@
     "popup_reason_manager_not_ready": {
         "message": "当前页面中的来源管理器仍在加载中。"
     },
+    "popup_reason_manager_unreachable": {
+        "message": "NotebookLM 已打开，但当前标签页中的管理器无法连接。"
+    },
+    "popup_reason_tab_message_failed": {
+        "message": "管理器标签页返回了意外的消息失败。"
+    },
+    "popup_reason_tabs_query_failed": {
+        "message": "Chrome 目前无法读取 NotebookLM 的当前标签页。"
+    },
     "popup_reason_notebook_missing": {
         "message": "请先打开 NotebookLM 的具体笔记本页面，再访问来源管理器。"
     },

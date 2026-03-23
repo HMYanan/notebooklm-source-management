@@ -31,6 +31,22 @@ After installation:
 
 NotebookLM is a single-page app, so switching notebooks does not always trigger a full reload. This extension tries to tear down and rebuild itself in place. A full page refresh is only used as a fallback when the source panel cannot be reattached after repeated retries.
 
+## Automated Checks
+
+Use these commands when you want to verify the repository without doing a full manual smoke pass:
+
+- `npm run test:unit` runs the Jest unit suite.
+- `npm run test:smoke` runs the Playwright browser smoke suite.
+- `npm run verify:full` runs both suites in sequence.
+- `npm run playwright:install` installs the Chromium browser used by Playwright smoke.
+
+The current Playwright smoke coverage is intentionally small:
+
+- extension popup shell renders without startup errors
+- unpacked extension loads and injects the manager into a NotebookLM-style fixture
+- `GET_MANAGER_STATUS` and `FOCUS_MANAGER` work across the extension message bridge
+- same-tab notebook route switches reattach the manager without a full reload
+
 ## Permissions
 
 - `storage`: saves folder membership, ordering, per-source enabled state, and custom panel height for each notebook.

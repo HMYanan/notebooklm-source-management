@@ -31,6 +31,7 @@
     } = contentConfig;
     const {
         createSourceDescriptor,
+        extractSourceIdentitySnapshot,
         extractSourceIconImageUrl,
         generateSourceKey,
         normalizeSourceText
@@ -66,6 +67,9 @@
     let pendingStorageUpgrade = false;
     let activeRouteRecoveryToken = 0;
     let routeRecoveryTimeout = null;
+    let activeManagerInstanceToken = 0;
+    let activeLoadStateRequestId = null;
+    let nextLoadStateRequestId = 1;
     let activeIsolationGroupId = null;
     let isSearchExpanded = false;
     let pendingInitialLoadedState = null;
@@ -75,6 +79,7 @@
     let panelResizeObserver = null;
     let panelLifecycleAnimationFrame = null;
     let panelLifecycleTimeout = null;
+    let panelLifecycleObserver = null;
     let activeSourceActionSourceKey = null;
     let sourceActionMenuPosition = null;
 
@@ -759,35 +764,36 @@
     function buildSourceLookup(sourceList) {
         const byId = new Map();
         const byLegacyKey = new Map();
+        const stableTokenBuckets = new Map();
         const fingerprintBuckets = new Map();
-        const titleBuckets = new Map();
 
         for (const source of sourceList) {
             byId.set(source.key, source.key);
             byLegacyKey.set(source.legacyKey, source.key);
 
+            if (source.stableToken) {
+                if (!stableTokenBuckets.has(source.stableToken)) stableTokenBuckets.set(source.stableToken, []);
+                stableTokenBuckets.get(source.stableToken).push(source.key);
+            }
             if (!fingerprintBuckets.has(source.fingerprint)) fingerprintBuckets.set(source.fingerprint, []);
             fingerprintBuckets.get(source.fingerprint).push(source.key);
-
-            if (!titleBuckets.has(source.normalizedTitle)) titleBuckets.set(source.normalizedTitle, []);
-            titleBuckets.get(source.normalizedTitle).push(source.key);
         }
 
+        const uniqueByStableToken = new Map();
         const uniqueByFingerprint = new Map();
-        const uniqueByTitle = new Map();
 
+        stableTokenBuckets.forEach((keys, stableToken) => {
+            if (keys.length === 1) uniqueByStableToken.set(stableToken, keys[0]);
+        });
         fingerprintBuckets.forEach((keys, fingerprint) => {
             if (keys.length === 1) uniqueByFingerprint.set(fingerprint, keys[0]);
-        });
-        titleBuckets.forEach((keys, title) => {
-            if (keys.length === 1) uniqueByTitle.set(title, keys[0]);
         });
 
         return {
             byId,
             byLegacyKey,
-            uniqueByFingerprint,
-            uniqueByTitle
+            uniqueByStableToken,
+            uniqueByFingerprint
         };
     }
 
@@ -796,15 +802,12 @@
         if (sourceLookup.byId.has(storedKey)) return sourceLookup.byId.get(storedKey);
         if (sourceLookup.byLegacyKey.has(storedKey)) return sourceLookup.byLegacyKey.get(storedKey);
 
-        if (sourceRecord && sourceRecord.fingerprint && sourceLookup.uniqueByFingerprint.has(sourceRecord.fingerprint)) {
-            return sourceLookup.uniqueByFingerprint.get(sourceRecord.fingerprint);
+        if (sourceRecord && sourceRecord.stableToken && sourceLookup.uniqueByStableToken.has(sourceRecord.stableToken)) {
+            return sourceLookup.uniqueByStableToken.get(sourceRecord.stableToken);
         }
 
-        const normalizedTitle = normalizeSourceText(
-            sourceRecord && (sourceRecord.normalizedTitle || sourceRecord.title)
-        );
-        if (normalizedTitle && sourceLookup.uniqueByTitle.has(normalizedTitle)) {
-            return sourceLookup.uniqueByTitle.get(normalizedTitle);
+        if (sourceRecord && sourceRecord.fingerprint && sourceLookup.uniqueByFingerprint.has(sourceRecord.fingerprint)) {
+            return sourceLookup.uniqueByFingerprint.get(sourceRecord.fingerprint);
         }
 
         return null;
@@ -817,6 +820,7 @@
                 enabled: Boolean(source.enabled),
                 title: source.title,
                 normalizedTitle: source.normalizedTitle || normalizeSourceText(source.title),
+                stableToken: source.stableToken || '',
                 fingerprint: source.fingerprint || '',
                 identityType: source.identityType || 'fingerprint'
             });
@@ -1164,32 +1168,86 @@
 
     let freshRowCache = null;
 
-    function findFreshCheckbox(sourceKey) {
-        // Find the fresh row element from the DOM using the source title
+    function isFreshRowCacheEntryMatch(sourceData, cacheEntry) {
+        if (!sourceData || !cacheEntry || !cacheEntry.row) return false;
+        if (!document.body.contains(cacheEntry.row)) return false;
+
+        const rowIdentity = cacheEntry.identity || extractSourceIdentitySnapshot(cacheEntry.row);
+        if (!rowIdentity) return false;
+
+        if (sourceData.stableToken) {
+            return Boolean(rowIdentity.stableToken && rowIdentity.stableToken === sourceData.stableToken);
+        }
+
+        if (!sourceData.fingerprint) return false;
+        return rowIdentity.fingerprint === sourceData.fingerprint;
+    }
+
+    function resolveFreshRowEntry(sourceKey) {
         const sourceData = sourcesByKey.get(sourceKey);
         if (!sourceData) return null;
 
         if (!freshRowCache) {
             freshRowCache = new Map();
-            const sourceElements = queryAllElements(DEPS.row);
-            for (const el of sourceElements) {
-                const titleEl = findElement(DEPS.title, el);
-                if (titleEl) {
-                    const titleText = titleEl.textContent.trim();
-                    // only store the first matching element for a title (preserves original logic)
-                    if (!freshRowCache.has(titleText)) {
-                        freshRowCache.set(titleText, el);
-                    }
-                }
+        }
+
+        const cachedEntry = freshRowCache.get(sourceKey);
+        if (isFreshRowCacheEntryMatch(sourceData, cachedEntry)) {
+            return cachedEntry;
+        }
+
+        freshRowCache.delete(sourceKey);
+
+        const sourceElements = getSourceElements();
+        const stableTokenMatches = [];
+        const fingerprintMatches = [];
+
+        for (const row of sourceElements) {
+            const rowIdentity = extractSourceIdentitySnapshot(row);
+            if (!rowIdentity) continue;
+
+            if (Boolean(
+                sourceData.stableToken &&
+                rowIdentity.stableToken &&
+                rowIdentity.stableToken === sourceData.stableToken
+            )) {
+                stableTokenMatches.push({
+                    row,
+                    checkbox: findElement(DEPS.checkbox, row),
+                    identity: rowIdentity
+                });
+            }
+
+            if (Boolean(
+                sourceData.fingerprint &&
+                rowIdentity.fingerprint === sourceData.fingerprint
+            )) {
+                fingerprintMatches.push({
+                    row,
+                    checkbox: findElement(DEPS.checkbox, row),
+                    identity: rowIdentity
+                });
             }
         }
 
-        const freshRow = freshRowCache.get(sourceData.title);
-        if (freshRow) {
-            return findElement(DEPS.checkbox, freshRow);
+        let resolvedEntry = null;
+        if (stableTokenMatches.length === 1) {
+            [resolvedEntry] = stableTokenMatches;
+        } else if (stableTokenMatches.length === 0 && fingerprintMatches.length === 1) {
+            [resolvedEntry] = fingerprintMatches;
         }
 
-        return null;
+        if (!resolvedEntry || !resolvedEntry.checkbox) {
+            return null;
+        }
+
+        freshRowCache.set(sourceKey, resolvedEntry);
+        return resolvedEntry;
+    }
+
+    function findFreshCheckbox(sourceKey) {
+        const resolvedEntry = resolveFreshRowEntry(sourceKey);
+        return resolvedEntry ? resolvedEntry.checkbox : null;
     }
 
     function buildParentMap() {
@@ -1633,6 +1691,11 @@
             chrome.runtime.sendMessage({ type: 'SAVE_STATE', key, data }, (response) => {
                 if (chrome.runtime.lastError) {
                     console.error("NotebookLM Source Management 通信失败:", chrome.runtime.lastError);
+                    return;
+                }
+
+                if (response && response.success === false) {
+                    console.warn("NotebookLM Source Management: SAVE_STATE rejected by background:", response.errorCode || 'unknown_error');
                 }
             });
         } catch (e) {
@@ -1655,6 +1718,23 @@
         if (typeof debouncedStorageSet.cancel === 'function') {
             debouncedStorageSet.cancel();
         }
+    }
+
+    function invalidateManagerInstance() {
+        activeManagerInstanceToken += 1;
+        activeLoadStateRequestId = null;
+    }
+
+    function isLiveManagerLoadRequest(expectedProjectId, expectedInstanceToken, expectedRequestId) {
+        return Boolean(
+            projectId &&
+            expectedProjectId &&
+            projectId === expectedProjectId &&
+            expectedInstanceToken === activeManagerInstanceToken &&
+            expectedRequestId === activeLoadStateRequestId &&
+            shadowRoot &&
+            (!shadowRoot.host || shadowRoot.host.isConnected !== false)
+        );
     }
 
     function buildPersistableState() {
@@ -1837,6 +1917,10 @@
     }
 
     function applyLoadedStateToManager(loadedState) {
+        if (!shadowRoot || (shadowRoot.host && shadowRoot.host.isConnected === false)) {
+            return;
+        }
+
         if (loadedState && loadedState.customHeight != null) {
             customHeight = loadedState.customHeight;
             const container = shadowRoot?.querySelector('.sp-container');
@@ -1856,17 +1940,35 @@
         }
     }
 
-    function loadState(callback) {
+    function loadState(callback, options = {}) {
         if (!projectId) {
             pendingStorageUpgrade = false;
             return callback(null);
         }
 
-        const key = `sourcesPlusState_${projectId}`;
+        const expectedProjectId = typeof options.expectedProjectId === 'string' ? options.expectedProjectId : projectId;
+        const expectedInstanceToken = typeof options.instanceToken === 'number' ? options.instanceToken : activeManagerInstanceToken;
+        const requestId = nextLoadStateRequestId++;
+        activeLoadStateRequestId = requestId;
+        const key = `sourcesPlusState_${expectedProjectId}`;
         try {
             chrome.runtime.sendMessage({ type: 'LOAD_STATE', key }, (response) => {
+                if (!isLiveManagerLoadRequest(expectedProjectId, expectedInstanceToken, requestId)) {
+                    return;
+                }
+
+                if (activeLoadStateRequestId === requestId) {
+                    activeLoadStateRequestId = null;
+                }
+
                 if (chrome.runtime.lastError) {
                     console.warn("NotebookLM Source Management 未能连接后台:", chrome.runtime.lastError);
+                    pendingStorageUpgrade = false;
+                    return callback(null);
+                }
+
+                if (response && response.success === false) {
+                    console.warn("NotebookLM Source Management: LOAD_STATE rejected by background:", response.errorCode || 'unknown_error');
                     pendingStorageUpgrade = false;
                     return callback(null);
                 }
@@ -1874,7 +1976,7 @@
                 const loadedState = normalizeLoadedState(response && response.data);
                 if (loadedState && loadedState.customHeight != null) {
                     customHeight = loadedState.customHeight;
-                    const container = shadowRoot.querySelector('.sp-container');
+                    const container = shadowRoot?.querySelector('.sp-container');
                     if (container) container.style.height = `${customHeight}px`;
                 }
 
@@ -1883,6 +1985,9 @@
         } catch (e) {
             console.warn("NotebookLM Source Management: Context invalidated during load. Please refresh the page.", e);
             pendingStorageUpgrade = false;
+            if (activeLoadStateRequestId === requestId) {
+                activeLoadStateRequestId = null;
+            }
             callback(null);
         }
     }
@@ -2964,11 +3069,10 @@
 
         if (!checkbox || !document.body.contains(checkbox)) {
             // Recover from detached DOM state
-            const freshCheckbox = findFreshCheckbox(source.key);
-            if (freshCheckbox) {
-                checkbox = freshCheckbox;
-                // Update the cached element to point to the fresh row
-                source.element = freshCheckbox.closest(DEPS.row[0]) || freshCheckbox.closest(DEPS.row[1]) || source.element;
+            const resolvedEntry = resolveFreshRowEntry(source.key);
+            if (resolvedEntry) {
+                checkbox = resolvedEntry.checkbox;
+                source.element = resolvedEntry.row || source.element;
             } else {
                 return; // Can't find it
             }
@@ -3702,6 +3806,12 @@
     }
 
     function cleanupManagerResources() {
+        clearScheduledPanelLifecycleSync();
+        invalidateManagerInstance();
+        if (routeRecoveryTimeout) {
+            clearTimeout(routeRecoveryTimeout);
+            routeRecoveryTimeout = null;
+        }
         if (scrollObserver) {
             scrollObserver.disconnect();
             scrollObserver = null;
@@ -3784,6 +3894,23 @@
         init(sourcePanel);
     }
 
+    function shouldReloadForRouteRecovery(targetProjectId, recoveryToken) {
+        if (recoveryToken !== activeRouteRecoveryToken) {
+            return false;
+        }
+
+        if (projectId !== targetProjectId || getProjectId() !== targetProjectId) {
+            return false;
+        }
+
+        if (document.visibilityState && document.visibilityState !== 'visible') {
+            return false;
+        }
+
+        const sourcePanel = findSourcePanel();
+        return !sourcePanel || !isSourcePanelRenderable(sourcePanel);
+    }
+
     function recoverManagerForRoute(targetProjectId, attempt = 0, recoveryToken = activeRouteRecoveryToken) {
         waitForElement(DEPS.panel, {
             observerRoot: document.body,
@@ -3799,13 +3926,17 @@
             }
 
             if (attempt + 1 >= ROUTE_REINIT_MAX_ATTEMPTS) {
-                if (window.location && typeof window.location.reload === 'function') {
+                if (shouldReloadForRouteRecovery(targetProjectId, recoveryToken) && window.location && typeof window.location.reload === 'function') {
                     window.location.reload();
                 }
                 return;
             }
 
+            if (routeRecoveryTimeout) {
+                clearTimeout(routeRecoveryTimeout);
+            }
             routeRecoveryTimeout = setTimeout(() => {
+                routeRecoveryTimeout = null;
                 recoverManagerForRoute(targetProjectId, attempt + 1, recoveryToken);
             }, ROUTE_REINIT_RETRY_DELAY_MS);
         });
@@ -3841,6 +3972,10 @@
             managerStatusReason = 'manager_not_ready';
             return;
         }
+
+        activeManagerInstanceToken += 1;
+        activeLoadStateRequestId = null;
+        const managerInstanceToken = activeManagerInstanceToken;
 
         bindPanelLifecycleHooks(sourcePanel);
 
@@ -3980,6 +4115,9 @@
 
             loadState((loadedState) => {
                 applyLoadedStateToManager(loadedState);
+            }, {
+                expectedProjectId: projectId,
+                instanceToken: managerInstanceToken
             });
         } else {
             attachedSourcePanel = null;
@@ -4035,7 +4173,7 @@
     window.addEventListener('popstate', onRouteChange);
 
     // Narrower observer for panel lifecycle only (no subtree attribute watching)
-    const panelLifecycleObserver = new MutationObserver(() => {
+    panelLifecycleObserver = new MutationObserver(() => {
         schedulePanelLifecycleSync();
     });
     const sourcePanelParent = findSourcePanel()?.parentElement || document.body;
@@ -4143,6 +4281,9 @@
             _handleSearchButtonClick: handleSearchButtonClick,
             _handleSearchOutsideClick: handleSearchOutsideClick,
             _resetState: () => {
+                clearScheduledPanelLifecycleSync();
+                invalidateManagerInstance();
+                nextLoadStateRequestId = 1;
                 state.groups = [];
                 state.ungrouped = [];
                 state.filterQuery = '';
@@ -4169,13 +4310,13 @@
                 pendingPanelReattachState = null;
                 attachedSourcePanel = null;
                 attachedPanelHeader = null;
+                managerStatusReason = 'manager_not_ready';
                 if (panelResizeObserver) {
                     panelResizeObserver.disconnect();
                     panelResizeObserver = null;
                 }
                 activeRouteRecoveryToken = 0;
                 routeRecoveryTimeout = null;
-                managerStatusReason = 'manager_not_ready';
                 state.tagOrder = [];
                 state.activeTagId = null;
                 activeIsolationGroupId = null;
