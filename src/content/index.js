@@ -2542,8 +2542,11 @@
         if (source) {
             modal.querySelector('#sp-save-tags-btn').addEventListener('click', () => {
                 const nextTagIds = Array.from(modal.querySelectorAll('.sp-tag-option-checkbox:checked'))
-                    .map((input) => input.dataset.tagId)
-                    .filter(Boolean);
+                    .reduce((acc, input) => {
+                        const tagId = input.dataset.tagId;
+                        if (tagId) acc.push(tagId);
+                        return acc;
+                    }, []);
                 setSourceTagIds(sourceKey, nextTagIds);
                 saveState({ immediate: true });
                 render();
